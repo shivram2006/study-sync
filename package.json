@@ -1,0 +1,20 @@
+{
+  "name": "zenith-studysync",
+  "version": "1.0.0",
+  "description": "Zenith - Minimalist Daily Task Planner & StudySync",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "npm --prefix client run build",
+    "postinstall": "npm --prefix server install && npm --prefix client install",
+    "server": "npm --prefix server start",
+    "client": "npm --prefix client run dev",
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run server\" \"npm run client\""
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
