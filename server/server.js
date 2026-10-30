@@ -1,7 +1,8 @@
-require('dotenv').config();
-const http = require('http');
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -132,14 +133,15 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-// Connect to DB and start server
-connectDB().then(() => {
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`=========================================`);
-    console.log(`Zenith StudySync & Task Service Running`);
-    console.log(`Server listening on port ${PORT}`);
-    console.log(`API Health: http://localhost:${PORT}/api/health`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`=========================================`);
-  });
+// Start HTTP & Socket.IO server immediately to pass cloud platform health checks
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`=========================================`);
+  console.log(`Zenith StudySync & Task Service Running`);
+  console.log(`Server listening on port ${PORT}`);
+  console.log(`API Health: http://localhost:${PORT}/api/health`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`=========================================`);
 });
+
+// Connect to MongoDB Atlas / remote database with retries
+connectDB();
