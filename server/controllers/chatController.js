@@ -1,6 +1,7 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const User = require('../models/User');
+const { sendPushToUser } = require('../utils/pushNotifier');
 
 const getIO = (req) => req.app.get('io');
 
@@ -190,6 +191,11 @@ exports.sendMessage = async (req, res) => {
         message
       });
     }
+
+    // Send Web Push notification (arrives even if partner's app/phone is closed)
+    sendPushToUser(otherParticipantId).catch((err) =>
+      console.error('WebPush notification dispatch error:', err)
+    );
 
     res.status(201).json({ success: true, message });
   } catch (error) {

@@ -107,3 +107,66 @@ exports.getUserProfile = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to load user profile' });
   }
 };
+
+// @route GET /api/users/vapid-key
+exports.getVapidPublicKey = async (req, res) => {
+  try {
+    const { VAPID_PUBLIC_KEY } = require('../config/webpush');
+    res.status(200).json({ success: true, publicKey: VAPID_PUBLIC_KEY });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to retrieve VAPID key' });
+  }
+};
+
+// @route POST /api/users/subscribe-push
+exports.subscribePush = async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription || !subscription.endpoint || !subscription.keys) {
+      return res.status(400).json({ success: false, message: 'Invalid subscription data.' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    // Filter out if this exact endpoint already exists, then push updated
+    user.pushSubscriptions = (user.pushSubscriptions || []).filter(
+      (sub) => sub.endpoint !== subscription.endpoint
+    );
+
+    user.pushSubscriptions.push({
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth
+      }
+    });
+
+    await user.save();
+    res.status(200).json({ success: true, message: 'Push subscription saved successfully.' });
+  } catch (error) {
+    console.error('Subscribe push error:', error);
+    res.status(500).json({ success: false, message: 'Failed to save push subscription.' });
+  }
+};
+
+// @route POST /api/users/unsubscribe-push
+exports.unsubscribePush = async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    if (!endpoint) {
+      return res.status(400).json({ success: false, message: 'Endpoint is required.' });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      $pull: { pushSubscriptions: { endpoint } }
+    });
+
+    res.status(200).json({ success: true, message: 'Unsubscribed from push notifications.' });
+  } catch (error) {
+    console.error('Unsubscribe push error:', error);
+    res.status(500).json({ success: false, message: 'Failed to unsubscribe.' });
+  }
+};

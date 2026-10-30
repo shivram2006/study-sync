@@ -5,7 +5,8 @@ import {
   playMessageTone,
   sendDisguisedNotification,
   initAudioContext,
-  requestNotificationPermission
+  requestNotificationPermission,
+  subscribeUserToPush
 } from '../utils/notificationSound';
 
 const SocketContext = createContext(null);
@@ -36,6 +37,15 @@ export const SocketProvider = ({ children }) => {
       window.removeEventListener('touchstart', unlockAudio);
     };
   }, []);
+
+  // Sync Web Push subscription for closed/locked background notifications
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      subscribeUserToPush(token).catch((err) => {
+        console.warn('Background Web Push registration notice:', err);
+      });
+    }
+  }, [isAuthenticated, token]);
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
@@ -124,7 +134,8 @@ export const SocketProvider = ({ children }) => {
         socket,
         isConnected,
         onlineUsers,
-        requestNotificationPermission
+        requestNotificationPermission,
+        subscribeUserToPush
       }}
     >
       {children}
@@ -134,5 +145,13 @@ export const SocketProvider = ({ children }) => {
 
 export const useSocket = () => {
   const context = useContext(SocketContext);
-  return context || { socket: null, isConnected: false, onlineUsers: new Set(), requestNotificationPermission: () => {} };
+  return (
+    context || {
+      socket: null,
+      isConnected: false,
+      onlineUsers: new Set(),
+      requestNotificationPermission: () => {},
+      subscribeUserToPush: () => Promise.resolve(null)
+    }
+  );
 };

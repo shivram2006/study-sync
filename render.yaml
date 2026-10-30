@@ -15,3 +15,9 @@ services:
         generateValue: true
       - key: MONGODB_URI
         sync: false
+      - key: VAPID_PUBLIC_KEY
+        value: BPMK_TJlMpofilJazUA6KzT5SuE6pOTTpWboY_UmCf622mH9y1gBwfW0h460k90T66ZVFaK2ZrUmF59-7apj1zU
+      - key: VAPID_PRIVATE_KEY
+        value: sjiKEmGuUJFY4gUcBmgB-2oARQEFokmz7Yb1_NCfb-w
+      - key: VAPID_SUBJECT
+        value: mailto:support@zenithapp.com

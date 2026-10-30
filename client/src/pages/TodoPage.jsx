@@ -19,7 +19,7 @@ import { PwaInstallBanner } from '../components/pwa/PwaInstallBanner';
 import { IosInstallModal } from '../components/pwa/IosInstallModal';
 import { usePWA } from '../hooks/usePWA';
 import { useAuth } from '../context/AuthContext';
-import { requestNotificationPermission } from '../utils/notificationSound';
+import { requestNotificationPermission, subscribeUserToPush } from '../utils/notificationSound';
 
 const INITIAL_TASKS = [
   {
@@ -96,8 +96,8 @@ export const TodoPage = () => {
       // Unlock sanctuary in this browser session
       sessionStorage.setItem('zenith_sanctuary_unlocked', 'true');
 
-      // Request notification permission for disguised task updates
-      requestNotificationPermission().catch(() => {});
+      // Request notification permission and subscribe to Web Push for background alerts
+      subscribeUserToPush().catch(() => {});
 
       // Trigger elegant romantic confetti & smooth transition
       confetti({

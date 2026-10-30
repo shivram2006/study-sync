@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Heart, Lock, User, Smile, ArrowLeft, AlertCircle, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { romanticConfig } from '../utils/romanticConfig';
+import { subscribeUserToPush } from '../utils/notificationSound';
 
 export const RegisterPage = () => {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ export const RegisterPage = () => {
 
       if (res.success) {
         sessionStorage.setItem('zenith_sanctuary_unlocked', 'true');
+        subscribeUserToPush(res.token).catch(() => {});
         navigate('/private-chat');
       } else {
         setError(res.message || 'Registration failed.');

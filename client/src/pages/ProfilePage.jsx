@@ -17,7 +17,8 @@ import { romanticConfig } from '../utils/romanticConfig';
 import {
   playMessageTone,
   sendDisguisedNotification,
-  requestNotificationPermission
+  requestNotificationPermission,
+  subscribeUserToPush
 } from '../utils/notificationSound';
 
 export const ProfilePage = () => {
@@ -36,6 +37,11 @@ export const ProfilePage = () => {
   );
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pushStatus, setPushStatus] = useState(
+    typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
+      ? 'active'
+      : 'idle'
+  );
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -220,8 +226,51 @@ export const ProfilePage = () => {
             </div>
           </div>
 
+          <div className="mt-3 pt-3 border-t border-rose-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <span className="text-xs text-stone-700 font-medium block">Closed App / Lockscreen Alerts</span>
+              <span className="text-[11px] text-stone-500">
+                {pushStatus === 'active'
+                  ? 'Active on this device: You receive alerts even when phone is locked.'
+                  : 'Tap to allow notifications when the app is closed.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={pushStatus === 'syncing'}
+              onClick={async () => {
+                setPushStatus('syncing');
+                const sub = await subscribeUserToPush();
+                if (sub) {
+                  setPushStatus('active');
+                } else {
+                  setPushStatus('idle');
+                }
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shadow-xs cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1.5 shrink-0 ${
+                pushStatus === 'active'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-rose-500 hover:bg-rose-600 text-white'
+              }`}
+            >
+              {pushStatus === 'syncing' ? (
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : pushStatus === 'active' ? (
+                <>
+                  <Check size={13} className="text-emerald-600" />
+                  <span>Enabled on Device</span>
+                </>
+              ) : (
+                <>
+                  <Bell size={13} />
+                  <span>Enable Push Alerts</span>
+                </>
+              )}
+            </button>
+          </div>
+
           <div className="mt-3 pt-3 border-t border-rose-50 flex items-center justify-between">
-            <span className="text-xs text-stone-600">Test tone & stealth notification:</span>
+            <span className="text-xs text-stone-600">Test tone & disguised alert:</span>
             <button
               type="button"
               onClick={async () => {

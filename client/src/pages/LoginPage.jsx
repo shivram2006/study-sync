@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Heart, Lock, User, ArrowLeft, AlertCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { subscribeUserToPush } from '../utils/notificationSound';
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ export const LoginPage = () => {
       const res = await login({ username: username.trim(), password });
       if (res.success) {
         sessionStorage.setItem('zenith_sanctuary_unlocked', 'true');
+        subscribeUserToPush(res.token).catch(() => {});
         navigate('/private-chat');
       } else {
         setError(res.message || 'Login failed.');
