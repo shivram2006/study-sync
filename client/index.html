@@ -16,14 +16,32 @@
     <meta name="format-detection" content="telephone=no" />
     <meta name="mobile-web-app-capable" content="yes" />
     
-    <!-- Favicon & Icons -->
+    <!-- Manifest & Icons -->
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     
-    <!-- Google Fonts: Cormorant Garamond (Serif), Playfair Display, Plus Jakarta Sans (Clean Modern Sans) -->
+    <!-- Google Fonts: Cormorant Garamond, Playfair Display, Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,400;1,600&display=swap" rel="stylesheet" />
+
+    <!-- Early PWA Install Prompt Capture (Zero latency capture) -->
+    <script>
+      window.__pwaInstallPrompt = null;
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window.__pwaInstallPrompt = e;
+        window.dispatchEvent(new CustomEvent('pwa-prompt-ready'));
+      });
+      window.addEventListener('appinstalled', function() {
+        window.__pwaInstallPrompt = null;
+        try {
+          localStorage.setItem('zenith_pwa_installed', 'true');
+        } catch(e) {}
+        window.dispatchEvent(new CustomEvent('pwa-installed'));
+      });
+    </script>
   </head>
   <body class="bg-[#FAF8F5] text-stone-800 antialiased selection:bg-rose-200 selection:text-rose-900 overflow-x-hidden min-h-screen">
     <div id="root"></div>

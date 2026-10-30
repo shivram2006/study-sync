@@ -1,71 +1,113 @@
 import { useState, useEffect } from 'react';
 
 export const usePWA = () => {
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [isInstalled, setIsInstalled] = useState(false);
+  // Check if running as installed standalone PWA or previously marked installed
+  const checkIsInstalled = () => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true ||
+      document.referrer.includes('android-app://') ||
+      localStorage.getItem('zenith_pwa_installed') === 'true'
+    );
+  };
+
+  const [deferredPrompt, setDeferredPrompt] = useState(
+    () => (typeof window !== 'undefined' ? window.__pwaInstallPrompt : null)
+  );
+  const [isInstalled, setIsInstalled] = useState(checkIsInstalled);
   const [isIos, setIsIos] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
 
   useEffect(() => {
-    // Detect iOS
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    const isAppleDevice = /iphone|ipad|ipod/.test(userAgent);
-    setIsIos(isAppleDevice);
+    if (typeof window === 'undefined') return;
 
-    // Detect if already running as standalone PWA
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      window.navigator.standalone === true ||
-      document.referrer.includes('android-app://');
+    // Detect iOS (iPhone/iPad/iPod)
+    const ua = window.navigator.userAgent.toLowerCase();
+    const isApple = /iphone|ipad|ipod/.test(ua) && !window.MSStream;
+    setIsIos(isApple);
 
-    setIsInstalled(isStandalone);
+    // Initial check
+    if (checkIsInstalled()) {
+      setIsInstalled(true);
+    }
 
-    // Listen for beforeinstallprompt event (Android / Chromium)
-    const handleBeforeInstallPrompt = (e) => {
+    // Capture prompt if it was already stored in window.__pwaInstallPrompt
+    if (window.__pwaInstallPrompt) {
+      setDeferredPrompt(window.__pwaInstallPrompt);
+    }
+
+    const handleBeforeInstall = (e) => {
       e.preventDefault();
+      window.__pwaInstallPrompt = e;
       setDeferredPrompt(e);
     };
 
-    // Listen for appinstalled event
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setDeferredPrompt(null);
+    const handlePromptReady = () => {
+      if (window.__pwaInstallPrompt) {
+        setDeferredPrompt(window.__pwaInstallPrompt);
+      }
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
+    const handleInstalled = () => {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+      window.__pwaInstallPrompt = null;
+      try {
+        localStorage.setItem('zenith_pwa_installed', 'true');
+      } catch (err) {}
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('pwa-prompt-ready', handlePromptReady);
+    window.addEventListener('appinstalled', handleInstalled);
+    window.addEventListener('pwa-installed', handleInstalled);
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('pwa-prompt-ready', handlePromptReady);
+      window.removeEventListener('appinstalled', handleInstalled);
+      window.removeEventListener('pwa-installed', handleInstalled);
     };
   }, []);
 
   const triggerInstall = async () => {
     if (isInstalled) return;
 
+    // On iOS Safari, browsers don't support programmatic install prompts, show swift guide
     if (isIos) {
-      // Show iOS step-by-step modal guide
       setShowIosGuide(true);
       return;
     }
 
-    if (deferredPrompt) {
+    const promptEvent = deferredPrompt || window.__pwaInstallPrompt;
+
+    if (promptEvent) {
       try {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
+        promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
         if (outcome === 'accepted') {
           setIsInstalled(true);
+          try {
+            localStorage.setItem('zenith_pwa_installed', 'true');
+          } catch (e) {}
         }
         setDeferredPrompt(null);
+        window.__pwaInstallPrompt = null;
       } catch (err) {
-        console.error('Error triggering PWA install prompt:', err);
+        console.warn('Install prompt error:', err);
       }
     } else {
-      // If neither beforeinstallprompt nor iOS (e.g. desktop non-chromium or already prompted)
-      alert(
-        'To install this app on your device:\n\n• On Chrome/Edge: Click the install icon in your address bar or menu.\n• On Mobile: Tap your browser menu and choose "Install App" or "Add to Home Screen".'
-      );
+      // If browser hasn't fired beforeinstallprompt yet or already installed
+      if ('standalone' in navigator && navigator.standalone) {
+        setIsInstalled(true);
+        localStorage.setItem('zenith_pwa_installed', 'true');
+      } else {
+        // Fallback for browsers that require standard menu action
+        alert(
+          'Please tap your browser menu (⋮ or Share icon) and choose "Add to Home Screen" or "Install App".'
+        );
+      }
     }
   };
 
