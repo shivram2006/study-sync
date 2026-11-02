@@ -21,13 +21,18 @@ export const chatService = {
     return res.data;
   },
 
+  async editMessage(messageId, content) {
+    const res = await api.put(`/chat/messages/${messageId}`, { content });
+    return res.data;
+  },
+
   async reactToMessage(messageId, emoji) {
     const res = await api.post(`/chat/messages/${messageId}/react`, { emoji });
     return res.data;
   },
 
-  async deleteMessage(messageId) {
-    const res = await api.delete(`/chat/messages/${messageId}`);
+  async deleteMessage(messageId, type = 'everyone') {
+    const res = await api.delete(`/chat/messages/${messageId}?type=${type}`);
     return res.data;
   },
 

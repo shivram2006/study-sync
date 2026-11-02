@@ -5,6 +5,7 @@ const {
   getConversationById,
   getMessages,
   sendMessage,
+  editMessage,
   reactToMessage,
   deleteMessage,
   markAsRead
@@ -17,6 +18,7 @@ router.get('/conversations', getConversations);
 router.get('/conversations/:id', getConversationById);
 router.get('/messages/:conversationId', getMessages);
 router.post('/messages', sendMessage);
+router.put('/messages/:id', editMessage);
 router.post('/messages/:id/react', reactToMessage);
 router.delete('/messages/:id', deleteMessage);
 router.post('/conversations/:id/read', markAsRead);

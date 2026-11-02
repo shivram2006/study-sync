@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Heart,
@@ -9,11 +9,16 @@ import {
   LogOut,
   Check,
   CheckSquare,
-  Bell
+  Bell,
+  Camera,
+  Upload,
+  Image as ImageIcon,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Navbar } from '../components/common/Navbar';
 import { romanticConfig } from '../utils/romanticConfig';
+import { chatService } from '../services/chatService';
 import {
   playMessageTone,
   sendDisguisedNotification,
@@ -35,6 +40,7 @@ export const ProfilePage = () => {
   const [selectedAvatar, setSelectedAvatar] = useState(
     user?.avatar || romanticConfig.presetAvatars[0].url
   );
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pushStatus, setPushStatus] = useState(
@@ -42,6 +48,43 @@ export const ProfilePage = () => {
       ? 'active'
       : 'idle'
   );
+
+  const fileInputRef = useRef(null);
+
+  // Custom photo upload handler
+  const handleCustomAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Verify it's an image
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (PNG, JPG, WEBP).');
+      return;
+    }
+
+    try {
+      setUploadingAvatar(true);
+      const res = await chatService.uploadFile(file);
+      if (res.success && res.fileUrl) {
+        setSelectedAvatar(res.fileUrl);
+        // Automatically save immediately so user doesn't lose it
+        await updateProfile({
+          displayName,
+          bio,
+          customQuote,
+          relationshipStartDate,
+          avatar: res.fileUrl
+        });
+        setSavedSuccess(true);
+        setTimeout(() => setSavedSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error('Avatar upload error:', err);
+      alert('Failed to upload custom avatar. Please try a different image.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -78,7 +121,7 @@ export const ProfilePage = () => {
             Profile & Romantic Settings
           </h1>
           <p className="text-xs text-stone-500 mt-0.5">
-            Personalize your avatar, romantic quote, and relationship anniversary date.
+            Personalize your custom profile picture, romantic quotes, and anniversary date.
           </p>
         </div>
 
@@ -86,23 +129,85 @@ export const ProfilePage = () => {
           <motion.div
             initial={{ opacity: 0, y: -5 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2"
+            className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 shadow-xs"
           >
             <Check size={15} className="text-emerald-600" />
-            <span>Profile and romantic settings updated successfully!</span>
+            <span>Profile and custom picture updated successfully!</span>
           </motion.div>
         )}
 
         <form
           onSubmit={handleSave}
-          className="bg-white rounded-3xl p-5 sm:p-6 shadow-xs border border-rose-100/80 space-y-5"
+          className="bg-white rounded-3xl p-5 sm:p-6 shadow-xs border border-rose-100/80 space-y-6"
         >
-          {/* Avatar Presets Selection */}
+          {/* Custom Profile Picture Uploader Banner */}
+          <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-radial from-rose-50/60 to-pink-50/30 border border-rose-100/70">
+            <div className="relative group mb-3">
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border-3 border-rose-300 shadow-md bg-stone-100">
+                <img
+                  src={selectedAvatar}
+                  alt={displayName || 'Profile'}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+
+              {/* Upload Overlay Button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                title="Upload custom photo"
+                className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer"
+              >
+                <Camera size={22} />
+                <span className="text-[10px] font-semibold mt-1">Change</span>
+              </button>
+
+              {/* Camera Action Badge */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shadow-md border-2 border-white cursor-pointer active:scale-95 transition-all"
+                title="Upload custom photo"
+              >
+                {uploadingAvatar ? (
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Camera size={14} />
+                )}
+              </button>
+            </div>
+
+            {/* Hidden File Input for Custom Avatar */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleCustomAvatarUpload}
+              accept="image/*"
+              className="hidden"
+            />
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold border border-rose-200 cursor-pointer active:scale-95 transition-all"
+            >
+              <Upload size={13} />
+              <span>{uploadingAvatar ? 'Uploading Photo...' : 'Upload Custom Photo'}</span>
+            </button>
+            <p className="text-[11px] text-stone-400 mt-1.5">
+              Pick any favorite photo from your camera or gallery
+            </p>
+          </div>
+
+          {/* Preset Avatars Carousel */}
           <div>
             <label className="block text-xs font-semibold text-stone-700 mb-2">
-              Choose Avatar
+              Or Choose from Couple Memory Presets
             </label>
-            <div className="flex items-center gap-3 overflow-x-auto py-1 no-scrollbar">
+            <div className="flex items-center gap-3 overflow-x-auto py-1.5 no-scrollbar">
               {romanticConfig.presetAvatars.map((av) => (
                 <button
                   key={av.id}
@@ -110,13 +215,14 @@ export const ProfilePage = () => {
                   onClick={() => setSelectedAvatar(av.url)}
                   className={`relative w-14 h-14 rounded-full overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
                     selectedAvatar === av.url
-                      ? 'border-rose-500 scale-105 shadow-md shadow-rose-500/25'
+                      ? 'border-rose-500 scale-105 shadow-md shadow-rose-500/25 ring-2 ring-rose-200'
                       : 'border-transparent opacity-60 hover:opacity-100'
                   }`}
+                  title={av.name}
                 >
                   <img src={av.url} alt={av.name} className="w-full h-full object-cover" />
                   {selectedAvatar === av.url && (
-                    <div className="absolute inset-0 bg-rose-500/20 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-rose-500/30 flex items-center justify-center">
                       <Check size={16} className="text-white drop-shadow stroke-[3]" />
                     </div>
                   )}
@@ -181,13 +287,13 @@ export const ProfilePage = () => {
 
           <div>
             <label className="block text-xs font-semibold text-stone-700 mb-1.5">
-              Personal Bio / Note
+              About / Bio
             </label>
-            <input
-              type="text"
+            <textarea
+              rows={2}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              placeholder="A gentle note displayed on your discovery card..."
+              placeholder="Something sweet about us..."
               className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300 focus:bg-white transition-all"
             />
           </div>
@@ -196,94 +302,83 @@ export const ProfilePage = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-semibold text-xs sm:text-sm shadow-xs active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
+              className="w-full py-3 px-4 rounded-xl bg-rose-500 hover:bg-rose-600 active:scale-[0.99] text-white font-medium text-sm flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer disabled:opacity-60"
             >
               {isSubmitting ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <Save size={15} />
-                  <span>Save Romantic Settings</span>
+                  <Save size={16} />
+                  <span>Save Changes</span>
                 </>
               )}
             </button>
           </div>
         </form>
 
-        {/* Stealth Notifications & Ringtone Test Card */}
-        <div className="mt-5 p-5 rounded-3xl bg-white border border-rose-100 shadow-2xs">
-          <div className="flex items-center gap-2.5 mb-2">
-            <div className="w-8 h-8 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center">
-              <Bell size={16} />
-            </div>
-            <div>
-              <h3 className="font-semibold text-stone-900 text-sm">
-                Stealth Notifications & Ringtone
-              </h3>
-              <p className="text-[11px] text-stone-500">
-                Incoming messages ring a sweet chime and show a disguised "New task added" alert.
-              </p>
-            </div>
+        {/* Push Notifications Configuration */}
+        <div className="mt-6 bg-white rounded-3xl p-5 shadow-xs border border-rose-100/80">
+          <div className="flex items-center gap-2 mb-2">
+            <Bell size={16} className="text-rose-500" />
+            <h3 className="text-sm font-semibold text-stone-900">Background Push Notifications</h3>
           </div>
+          <p className="text-xs text-stone-500 leading-relaxed mb-4">
+            Receive discrete, disguised notifications for messages and calls even when your browser or app is closed.
+          </p>
 
-          <div className="mt-3 pt-3 border-t border-rose-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <span className="text-xs text-stone-700 font-medium block">Closed App / Lockscreen Alerts</span>
-              <span className="text-[11px] text-stone-500">
-                {pushStatus === 'active'
-                  ? 'Active on this device: You receive alerts even when phone is locked.'
-                  : 'Tap to allow notifications when the app is closed.'}
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={pushStatus === 'syncing'}
-              onClick={async () => {
-                setPushStatus('syncing');
-                const sub = await subscribeUserToPush();
-                if (sub) {
-                  setPushStatus('active');
-                } else {
-                  setPushStatus('idle');
-                }
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shadow-xs cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1.5 shrink-0 ${
-                pushStatus === 'active'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'bg-rose-500 hover:bg-rose-600 text-white'
-              }`}
-            >
-              {pushStatus === 'syncing' ? (
-                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : pushStatus === 'active' ? (
-                <>
-                  <Check size={13} className="text-emerald-600" />
-                  <span>Enabled on Device</span>
-                </>
-              ) : (
-                <>
-                  <Bell size={13} />
-                  <span>Enable Push Alerts</span>
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await subscribeUserToPush();
+              if (res.success) {
+                setPushStatus('active');
+                sendDisguisedNotification('StudySync Alert', 'You have a study reminder pending.');
+              } else {
+                alert(res.message || 'Push permission could not be granted.');
+              }
+            }}
+            className={`w-full py-2.5 px-4 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              pushStatus === 'active'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+            }`}
+          >
+            {pushStatus === 'active' ? (
+              <>
+                <Check size={14} className="text-emerald-600" />
+                <span>Background Push Notifications Active</span>
+              </>
+            ) : (
+              <>
+                <Bell size={14} />
+                <span>Enable Background Push Notifications</span>
+              </>
+            )}
+          </button>
+        </div>
 
-          <div className="mt-3 pt-3 border-t border-rose-50 flex items-center justify-between">
-            <span className="text-xs text-stone-600">Test tone & disguised alert:</span>
-            <button
-              type="button"
-              onClick={async () => {
-                await requestNotificationPermission();
-                playMessageTone();
-                await sendDisguisedNotification();
-              }}
-              className="px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold shadow-xs cursor-pointer active:scale-95 transition-all flex items-center gap-1.5"
-            >
-              <Bell size={13} />
-              <span>Test Chime & Alert</span>
-            </button>
-          </div>
+        {/* Disguise Switcher & Logout */}
+        <div className="mt-6 flex flex-col gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              sessionStorage.removeItem('zenith_sanctuary_unlocked');
+              window.location.href = '/';
+            }}
+            className="w-full py-2.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          >
+            <CheckSquare size={14} className="text-stone-500" />
+            <span>Lock & Return to Disguised To-Do Mode</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={logout}
+            className="w-full py-2.5 px-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          >
+            <LogOut size={14} />
+            <span>Log Out of Account</span>
+          </button>
         </div>
       </main>
     </div>

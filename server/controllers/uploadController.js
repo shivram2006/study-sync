@@ -8,7 +8,16 @@ exports.uploadFile = async (req, res) => {
     }
 
     const file = req.file;
-    const isImage = file.mimetype.startsWith('image/');
+    const mime = file.mimetype || '';
+    const isImage = mime.startsWith('image/');
+    const isAudio = mime.startsWith('audio/');
+    const isVideo = mime.startsWith('video/');
+
+    let fileType = 'file';
+    if (isImage) fileType = 'image';
+    else if (isAudio) fileType = 'audio';
+    else if (isVideo) fileType = 'video';
+
     const fileUrl = `/uploads/${file.filename}`;
 
     res.status(200).json({
@@ -16,7 +25,7 @@ exports.uploadFile = async (req, res) => {
       fileUrl,
       fileName: file.originalname,
       fileSize: file.size,
-      fileType: isImage ? 'image' : 'file',
+      fileType,
       mimeType: file.mimetype
     });
   } catch (error) {

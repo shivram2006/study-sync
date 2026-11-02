@@ -39,7 +39,7 @@ const messageSchema = new mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'file'],
+      enum: ['text', 'image', 'file', 'audio', 'video_note', 'video'],
       default: 'text'
     },
     fileUrl: {
@@ -53,6 +53,18 @@ const messageSchema = new mongoose.Schema(
     fileSize: {
       type: Number,
       default: 0
+    },
+    duration: {
+      type: Number,
+      default: 0
+    },
+    isEdited: {
+      type: Boolean,
+      default: false
+    },
+    editedAt: {
+      type: Date,
+      default: null
     },
     replyTo: {
       messageId: {
@@ -80,7 +92,13 @@ const messageSchema = new mongoose.Schema(
     isDeleted: {
       type: Boolean,
       default: false
-    }
+    },
+    deletedFor: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    ]
   },
   {
     timestamps: true

@@ -17,7 +17,10 @@ import {
   Heart,
   Sparkles,
   Phone,
-  Video
+  Video,
+  Mic,
+  StopCircle,
+  MoreVertical
 } from 'lucide-react';
 import { chatService } from '../services/chatService';
 import { useAuth } from '../context/AuthContext';
@@ -26,6 +29,10 @@ import { useCall } from '../context/CallContext';
 import { romanticConfig } from '../utils/romanticConfig';
 import { formatLastSeen, formatMessageTime } from '../utils/dateUtils';
 import { RomanticChatBackground } from '../components/chat/RomanticChatBackground';
+import { VoiceNotePlayer } from '../components/chat/VoiceNotePlayer';
+import { VideoNotePlayer } from '../components/chat/VideoNotePlayer';
+import { VideoNoteRecorderModal } from '../components/chat/VideoNoteRecorderModal';
+import { MessageActionModal } from '../components/chat/MessageActionModal';
 import confetti from 'canvas-confetti';
 
 export const ChatRoomPage = () => {
@@ -43,8 +50,22 @@ export const ChatRoomPage = () => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
-  const [selectedMessageMenuId, setSelectedMessageMenuId] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // WhatsApp-style message action sheet & modals
+  const [activeActionMessage, setActiveActionMessage] = useState(null);
+  const [isVideoNoteOpen, setIsVideoNoteOpen] = useState(false);
+
+  // Voice Note Recording States
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const voiceMediaRecorderRef = useRef(null);
+  const voiceChunksRef = useRef([]);
+  const voiceTimerRef = useRef(null);
+  const voiceStreamRef = useRef(null);
+
+  // Long press timer for mobile
+  const longPressTimerRef = useRef(null);
 
   // Dynamic Visual Viewport tracking for iOS Safari & Standalone PWA
   const [viewportHeight, setViewportHeight] = useState(() =>
@@ -172,12 +193,10 @@ export const ChatRoomPage = () => {
   useEffect(() => {
     if (!conversationId) return;
 
-    // Initial check: only mark seen if document is currently visible
     if (document.visibilityState === 'visible') {
       triggerMarkAsSeen();
     }
 
-    // Trigger mark seen whenever user returns to or focuses this window/tab
     const onVisibilityOrFocusChange = () => {
       if (document.visibilityState === 'visible') {
         triggerMarkAsSeen();
@@ -193,6 +212,16 @@ export const ChatRoomPage = () => {
     };
   }, [conversationId, socket]);
 
+  // Clean up any ongoing voice recording on unmount
+  useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+      if (voiceStreamRef.current) {
+        voiceStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
   // Real-time socket events
   useEffect(() => {
     if (!socket || !conversationId) return;
@@ -207,7 +236,6 @@ export const ChatRoomPage = () => {
         });
         scrollToBottom();
 
-        // ONLY mark as seen if message is sent by partner AND user is actively viewing the page
         const senderId = (message.senderId?._id || message.senderId)?.toString();
         const currentUserId = user?._id?.toString();
 
@@ -223,6 +251,14 @@ export const ChatRoomPage = () => {
       );
     };
 
+    const handleEdited = ({ messageId, content, isEdited, editedAt }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id === messageId ? { ...m, content, isEdited, editedAt } : m
+        )
+      );
+    };
+
     const handleDelete = ({ messageId }) => {
       setMessages((prev) =>
         prev.map((m) =>
@@ -231,6 +267,10 @@ export const ChatRoomPage = () => {
             : m
         )
       );
+    };
+
+    const handleDeleteForMe = ({ messageId }) => {
+      setMessages((prev) => prev.filter((m) => m._id !== messageId));
     };
 
     const handleMessagesRead = ({ readerId }) => {
@@ -294,7 +334,9 @@ export const ChatRoomPage = () => {
 
     socket.on('new_message', handleNewMessage);
     socket.on('message_reaction_updated', handleReaction);
+    socket.on('message_edited', handleEdited);
     socket.on('message_deleted', handleDelete);
+    socket.on('message_deleted_for_me', handleDeleteForMe);
     socket.on('messages_read', handleMessagesRead);
     socket.on('messages_delivered', handleDelivered);
     socket.on('user_typing', handlePartnerTyping);
@@ -305,7 +347,9 @@ export const ChatRoomPage = () => {
       socket.emit('leave_conversation', { conversationId });
       socket.off('new_message', handleNewMessage);
       socket.off('message_reaction_updated', handleReaction);
+      socket.off('message_edited', handleEdited);
       socket.off('message_deleted', handleDelete);
+      socket.off('message_deleted_for_me', handleDeleteForMe);
       socket.off('messages_read', handleMessagesRead);
       socket.off('messages_delivered', handleDelivered);
       socket.off('user_typing', handlePartnerTyping);
@@ -332,7 +376,7 @@ export const ChatRoomPage = () => {
     }, 1800);
   };
 
-  // Send message
+  // Send text message
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     const content = inputText.trim();
@@ -371,31 +415,27 @@ export const ChatRoomPage = () => {
         scrollToBottom();
       }
     } catch (err) {
-      console.error('Failed to send message:', err);
+      console.error('Error sending message:', err);
     }
   };
 
-  // File Upload
+  // Handle standard attachment upload (photo, video, document)
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 25 * 1024 * 1024) {
-      alert('File size exceeds the 25MB limit.');
-      return;
-    }
-
     try {
       setUploading(true);
-      const uploadRes = await chatService.uploadFile(file);
-      if (uploadRes.success) {
+      const res = await chatService.uploadFile(file);
+
+      if (res.success) {
         const payload = {
           conversationId,
           content: '',
-          messageType: uploadRes.fileType,
-          fileUrl: uploadRes.fileUrl,
-          fileName: uploadRes.fileName,
-          fileSize: uploadRes.fileSize,
+          messageType: res.fileType || 'file',
+          fileUrl: res.fileUrl,
+          fileName: res.fileName,
+          fileSize: res.fileSize,
           replyTo: replyingTo
             ? {
                 messageId: replyingTo._id,
@@ -406,9 +446,9 @@ export const ChatRoomPage = () => {
             : undefined
         };
 
-        const res = await chatService.sendMessage(payload);
-        if (res.success && res.message) {
-          setMessages((prev) => [...prev, res.message]);
+        const sendRes = await chatService.sendMessage(payload);
+        if (sendRes.success && sendRes.message) {
+          setMessages((prev) => [...prev, sendRes.message]);
           scrollToBottom();
         }
       }
@@ -421,9 +461,55 @@ export const ChatRoomPage = () => {
     }
   };
 
+  // WhatsApp-style Edit Message
+  const handleEditMessage = async (messageId, newContent) => {
+    try {
+      const res = await chatService.editMessage(messageId, newContent);
+      if (res.success && res.message) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m._id === messageId
+              ? {
+                  ...m,
+                  content: res.message.content,
+                  isEdited: true,
+                  editedAt: res.message.editedAt
+                }
+              : m
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Error editing message:', err);
+      alert(err.response?.data?.message || 'Failed to edit message.');
+    }
+  };
+
+  // WhatsApp-style Delete Message ('everyone' or 'me')
+  const handleDeleteMessage = async (messageId, type = 'everyone') => {
+    try {
+      const res = await chatService.deleteMessage(messageId, type);
+      if (res.success) {
+        if (type === 'me') {
+          setMessages((prev) => prev.filter((m) => m._id !== messageId));
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m._id === messageId
+                ? { ...m, isDeleted: true, content: 'This message was deleted', fileUrl: '' }
+                : m
+            )
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Error deleting message:', err);
+      alert(err.response?.data?.message || 'Failed to delete message.');
+    }
+  };
+
   // React to message
   const handleReact = async (messageId, emoji) => {
-    setSelectedMessageMenuId(null);
     try {
       const res = await chatService.reactToMessage(messageId, emoji);
       if (res.success) {
@@ -436,23 +522,167 @@ export const ChatRoomPage = () => {
     }
   };
 
-  // Delete message
-  const handleDeleteMessage = async (messageId) => {
-    setSelectedMessageMenuId(null);
+  // Voice Note Recording
+  const startVoiceRecording = async () => {
     try {
-      const res = await chatService.deleteMessage(messageId);
-      if (res.success) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m._id === messageId
-              ? { ...m, isDeleted: true, content: 'This message was deleted', fileUrl: '' }
-              : m
-          )
-        );
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+      setVoiceSeconds(0);
+
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = '';
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          voiceChunksRef.current.push(e.data);
+        }
+      };
+
+      voiceMediaRecorderRef.current = recorder;
+      recorder.start(250);
+      setIsRecordingVoice(true);
+
+      voiceTimerRef.current = setInterval(() => {
+        setVoiceSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Voice recording error:', err);
+      alert('Microphone access denied or not available.');
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    if (voiceMediaRecorderRef.current && voiceMediaRecorderRef.current.state !== 'inactive') {
+      voiceMediaRecorderRef.current.stop();
+    }
+    if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach((t) => t.stop());
+      voiceStreamRef.current = null;
+    }
+    setIsRecordingVoice(false);
+    setVoiceSeconds(0);
+    voiceChunksRef.current = [];
+  };
+
+  const sendVoiceRecording = async () => {
+    if (!voiceMediaRecorderRef.current || !isRecordingVoice) return;
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+
+    const duration = voiceSeconds;
+    const recorder = voiceMediaRecorderRef.current;
+
+    recorder.onstop = async () => {
+      const mime = recorder.mimeType || 'audio/webm';
+      const audioBlob = new Blob(voiceChunksRef.current, { type: mime });
+      const audioFile = new File([audioBlob], `voice-note-${Date.now()}.${mime.includes('mp4') ? 'm4a' : 'webm'}`, {
+        type: mime
+      });
+
+      if (voiceStreamRef.current) {
+        voiceStreamRef.current.getTracks().forEach((t) => t.stop());
+        voiceStreamRef.current = null;
+      }
+      setIsRecordingVoice(false);
+      setVoiceSeconds(0);
+
+      try {
+        setUploading(true);
+        const res = await chatService.uploadFile(audioFile);
+        if (res.success && res.fileUrl) {
+          const payload = {
+            conversationId,
+            content: 'Voice note',
+            messageType: 'audio',
+            fileUrl: res.fileUrl,
+            fileName: audioFile.name,
+            fileSize: audioFile.size,
+            duration: duration || 1,
+            replyTo: replyingTo
+              ? {
+                  messageId: replyingTo._id,
+                  content: replyingTo.content || 'Voice note',
+                  senderName: replyingTo.senderId?.displayName || 'User',
+                  messageType: replyingTo.messageType
+                }
+              : undefined
+          };
+
+          const sendRes = await chatService.sendMessage(payload);
+          if (sendRes.success && sendRes.message) {
+            setMessages((prev) => [...prev, sendRes.message]);
+            scrollToBottom();
+          }
+        }
+      } catch (err) {
+        console.error('Error uploading voice note:', err);
+        alert('Failed to send voice note.');
+      } finally {
+        setUploading(false);
+        setReplyingTo(null);
+      }
+    };
+
+    recorder.stop();
+  };
+
+  // Circular Video Note Sending Handler
+  const handleSendVideoNote = async (videoBlob, duration) => {
+    const videoFile = new File(
+      [videoBlob],
+      `video-note-${Date.now()}.${videoBlob.type.includes('mp4') ? 'mp4' : 'webm'}`,
+      { type: videoBlob.type }
+    );
+
+    setUploading(true);
+    try {
+      const res = await chatService.uploadFile(videoFile);
+      if (res.success && res.fileUrl) {
+        const payload = {
+          conversationId,
+          content: 'Video note',
+          messageType: 'video_note',
+          fileUrl: res.fileUrl,
+          fileName: videoFile.name,
+          fileSize: videoFile.size,
+          duration: duration || 1,
+          replyTo: replyingTo
+            ? {
+                messageId: replyingTo._id,
+                content: replyingTo.content || 'Video note',
+                senderName: replyingTo.senderId?.displayName || 'User',
+                messageType: replyingTo.messageType
+              }
+            : undefined
+        };
+
+        const sendRes = await chatService.sendMessage(payload);
+        if (sendRes.success && sendRes.message) {
+          setMessages((prev) => [...prev, sendRes.message]);
+          scrollToBottom();
+        }
       }
     } catch (err) {
-      console.error('Error deleting message:', err);
+      console.error('Error sending video note:', err);
+      alert('Failed to send video note.');
+    } finally {
+      setUploading(false);
+      setReplyingTo(null);
     }
+  };
+
+  // Format seconds for recording timer
+  const formatVoiceTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   const partner = conversation?.recipient;
@@ -576,247 +806,230 @@ export const ChatRoomPage = () => {
 
       {/* Main Chat Body (Holds animated romantic background + scrolling messages) */}
       <div className="flex-1 relative min-h-0 overflow-hidden flex flex-col">
-        {/* Animated Romantic Memories Background (Fixed behind messages) */}
+        {/* Animated Romantic Memories Background (Fixed behind messages, vivid & vibrant) */}
         <RomanticChatBackground />
 
         {/* Message Stream Area */}
         <div
           className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 relative z-10 min-h-0"
           onClick={() => {
-            setSelectedMessageMenuId(null);
             setShowEmojiPicker(false);
           }}
         >
-        {/* Romantic Welcome Banner */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md mx-auto my-4 p-5 rounded-3xl bg-white/90 backdrop-blur-md border border-rose-100 text-center shadow-xs overflow-hidden"
-        >
-          {/* Framed Couple Memory Photo */}
-          <div className="relative w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-3 rounded-2xl overflow-hidden shadow-md border-2 border-rose-200/90 group cursor-pointer">
-            <img
-              src="/memories/memory-couple-portrait.jpg"
-              alt="Together"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            />
-            <div className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-xs">
-              <Heart size={12} className="fill-white" />
+          {/* Romantic Welcome Banner */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-md mx-auto my-3 p-4 sm:p-5 rounded-3xl bg-white/95 backdrop-blur-md border border-rose-100 text-center shadow-xs overflow-hidden"
+          >
+            {/* Framed Couple Memory Photo */}
+            <div className="relative w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-2.5 rounded-2xl overflow-hidden shadow-md border-2 border-rose-200/90 group cursor-pointer">
+              <img
+                src="/memories/memory-couple-portrait.jpg"
+                alt="Together"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              />
+              <div className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-xs">
+                <Heart size={11} className="fill-white" />
+              </div>
             </div>
-          </div>
 
-          <h3 className="font-serif-romantic font-bold text-base sm:text-lg text-stone-900">
-            {romanticConfig.welcomeSection.greeting}
-          </h3>
-          <p className="text-xs text-stone-600 mt-2 leading-relaxed whitespace-pre-line font-serif-romantic">
-            {romanticConfig.welcomeSection.message}
-          </p>
-          <span className="inline-block mt-3 text-[11px] font-semibold text-rose-600 uppercase tracking-widest">
-            {romanticConfig.welcomeSection.signature}
-          </span>
-        </motion.div>
+            <h3 className="font-serif-romantic font-bold text-base sm:text-lg text-stone-900">
+              {romanticConfig.welcomeSection.greeting}
+            </h3>
+            <p className="text-xs text-stone-600 mt-1.5 leading-relaxed whitespace-pre-line font-serif-romantic">
+              {romanticConfig.welcomeSection.message}
+            </p>
+            <span className="inline-block mt-2.5 text-[10px] font-semibold text-rose-600 uppercase tracking-widest">
+              {romanticConfig.welcomeSection.signature}
+            </span>
+          </motion.div>
 
-        {/* Messages List */}
-        {messages.map((msg) => {
-          const currentUserId = user?._id?.toString();
-          const senderId = (msg.senderId?._id || msg.senderId)?.toString();
-          const isMe = senderId === currentUserId;
-          const isDelivered = msg.deliveredTo?.length > 0;
-          const isRead = msg.readBy?.length > 0;
-          const isDeleted = msg.isDeleted;
-          const isMenuOpen = selectedMessageMenuId === msg._id;
+          {/* Messages List */}
+          {messages.map((msg) => {
+            const currentUserId = user?._id?.toString();
+            const senderId = (msg.senderId?._id || msg.senderId)?.toString();
+            const isMe = senderId === currentUserId;
+            const isDelivered = msg.deliveredTo?.length > 0;
+            const isRead = msg.readBy?.length > 0;
+            const isDeleted = msg.isDeleted;
 
-          return (
-            <motion.div
-              key={msg._id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} relative group`}
-              onTouchStart={(e) => {
-                touchStartXRef.current = e.touches[0].clientX;
-              }}
-              onTouchMove={(e) => {
-                touchCurrentXRef.current = e.touches[0].clientX;
-              }}
-              onTouchEnd={() => {
-                // Swipe right gesture to trigger reply on mobile
-                const diff = touchCurrentXRef.current - touchStartXRef.current;
-                if (diff > 65) {
-                  setReplyingTo(msg);
-                }
-              }}
-            >
-              <div className="flex items-center gap-1.5 max-w-[85%] sm:max-w-[70%]">
-                {/* Bubble Container */}
-                <div
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setSelectedMessageMenuId(isMenuOpen ? null : msg._id);
-                  }}
-                  className={`rounded-2xl p-3 shadow-2xs relative transition-all ${
-                    isDeleted
-                      ? 'bg-stone-100 text-stone-400 italic text-xs border border-stone-200'
-                      : isMe
-                      ? 'bg-rose-500 text-white rounded-br-xs'
-                      : 'bg-white text-stone-800 rounded-bl-xs border border-rose-100'
-                  }`}
-                >
-                  {/* Reply Reference Preview */}
-                  {msg.replyTo && msg.replyTo.content && (
-                    <div
-                      className={`mb-2 p-1.5 rounded-lg text-[11px] border-l-2 ${
-                        isMe
-                          ? 'bg-rose-600/60 border-white text-rose-50'
-                          : 'bg-rose-50 border-rose-400 text-stone-600'
-                      }`}
-                    >
-                      <span className="font-semibold block truncate">
-                        {msg.replyTo.senderName}
-                      </span>
-                      <span className="truncate block opacity-85">
-                        {msg.replyTo.content}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Image Content */}
-                  {msg.messageType === 'image' && msg.fileUrl && !isDeleted && (
-                    <div className="mb-2 rounded-xl overflow-hidden max-h-72 bg-stone-100">
-                      <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={msg.fileUrl}
-                          alt={msg.fileName || 'Attached image'}
-                          className="w-full h-auto object-cover hover:opacity-95 transition-opacity"
-                        />
-                      </a>
-                    </div>
-                  )}
-
-                  {/* File Attachment Content */}
-                  {msg.messageType === 'file' && msg.fileUrl && !isDeleted && (
-                    <a
-                      href={msg.fileUrl}
-                      download={msg.fileName}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`flex items-center gap-2 p-2.5 rounded-xl text-xs mb-1 transition-all ${
-                        isMe ? 'bg-rose-600 text-white' : 'bg-stone-100 text-stone-800'
-                      }`}
-                    >
-                      <FileText size={18} className="shrink-0" />
-                      <div className="min-w-0 flex-1 truncate">
-                        <p className="font-medium truncate">{msg.fileName}</p>
-                        <p className="text-[10px] opacity-75">
-                          {(msg.fileSize / 1024).toFixed(1)} KB
-                        </p>
-                      </div>
-                      <Download size={15} className="shrink-0 opacity-80" />
-                    </a>
-                  )}
-
-                  {/* Text Message Content */}
-                  {msg.content && (
-                    <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed select-text">
-                      {msg.content}
-                    </p>
-                  )}
-
-                  {/* Message Timestamp and Delivery Status */}
+            return (
+              <motion.div
+                key={msg._id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} relative group`}
+                onTouchStart={(e) => {
+                  touchStartXRef.current = e.touches[0].clientX;
+                  // Start long press timer (450ms)
+                  longPressTimerRef.current = setTimeout(() => {
+                    setActiveActionMessage(msg);
+                  }, 450);
+                }}
+                onTouchMove={(e) => {
+                  touchCurrentXRef.current = e.touches[0].clientX;
+                  // Moving finger cancels long press
+                  if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                }}
+                onTouchEnd={() => {
+                  if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                  // Swipe right gesture to trigger reply on mobile
+                  const diff = touchCurrentXRef.current - touchStartXRef.current;
+                  if (diff > 65) {
+                    setReplyingTo(msg);
+                  }
+                }}
+              >
+                <div className="flex items-center gap-1.5 max-w-[88%] sm:max-w-[75%]">
+                  {/* Bubble Container */}
                   <div
-                    className={`flex items-center justify-end gap-1 mt-1 text-[10px] ${
-                      isMe ? 'text-rose-100' : 'text-stone-400'
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setActiveActionMessage(msg);
+                    }}
+                    className={`rounded-2xl p-3 shadow-xs relative transition-all ${
+                      isDeleted
+                        ? 'bg-stone-100/95 backdrop-blur-xs text-stone-400 italic text-xs border border-stone-200'
+                        : isMe
+                        ? 'bg-rose-500 text-white rounded-br-xs shadow-md shadow-rose-500/15'
+                        : 'bg-white text-stone-800 rounded-bl-xs border border-rose-100 shadow-sm'
                     }`}
                   >
-                    <span>{formatMessageTime(msg.createdAt)}</span>
+                    {/* Reply Reference Preview */}
+                    {msg.replyTo && msg.replyTo.content && (
+                      <div
+                        className={`mb-2 p-1.5 rounded-lg text-[11px] border-l-2 ${
+                          isMe
+                            ? 'bg-rose-600/70 border-white text-rose-50'
+                            : 'bg-rose-50 border-rose-400 text-stone-600'
+                        }`}
+                      >
+                        <span className="font-semibold block truncate">
+                          {msg.replyTo.senderName}
+                        </span>
+                        <span className="truncate block opacity-85">
+                          {msg.replyTo.content}
+                        </span>
+                      </div>
+                    )}
 
-                    {/* Delivery & Read Receipts Status for sender's messages */}
-                    {isMe && !isDeleted && (
-                      <span className="flex items-center ml-0.5">
-                        {isRead ? (
-                          <CheckCheck size={14} className="text-sky-300 stroke-[2.5]" title="Seen" />
-                        ) : isDelivered ? (
-                          <CheckCheck size={14} className="text-rose-200 stroke-[2]" title="Delivered" />
-                        ) : (
-                          <Check size={14} className="text-rose-200" title="Sent" />
-                        )}
-                      </span>
+                    {/* Image Content */}
+                    {msg.messageType === 'image' && msg.fileUrl && !isDeleted && (
+                      <div className="mb-2 rounded-xl overflow-hidden max-h-72 bg-stone-100">
+                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={msg.fileUrl}
+                            alt={msg.fileName || 'Attached image'}
+                            className="w-full h-auto object-cover hover:opacity-95 transition-opacity"
+                          />
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Voice Note Audio Content */}
+                    {msg.messageType === 'audio' && msg.fileUrl && !isDeleted && (
+                      <VoiceNotePlayer
+                        fileUrl={msg.fileUrl}
+                        duration={msg.duration}
+                        isMe={isMe}
+                      />
+                    )}
+
+                    {/* Circular Video Note Content */}
+                    {msg.messageType === 'video_note' && msg.fileUrl && !isDeleted && (
+                      <VideoNotePlayer
+                        fileUrl={msg.fileUrl}
+                        isMe={isMe}
+                      />
+                    )}
+
+                    {/* Regular File Attachment Content */}
+                    {msg.messageType === 'file' && msg.fileUrl && !isDeleted && (
+                      <a
+                        href={msg.fileUrl}
+                        download={msg.fileName}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`flex items-center gap-2 p-2.5 rounded-xl text-xs mb-1 transition-all ${
+                          isMe ? 'bg-rose-600 text-white' : 'bg-stone-100 text-stone-800'
+                        }`}
+                      >
+                        <FileText size={18} className="shrink-0" />
+                        <div className="min-w-0 flex-1 truncate">
+                          <p className="font-medium truncate">{msg.fileName}</p>
+                          <p className="text-[10px] opacity-75">
+                            {(msg.fileSize / 1024).toFixed(1)} KB
+                          </p>
+                        </div>
+                        <Download size={15} className="shrink-0 opacity-80" />
+                      </a>
+                    )}
+
+                    {/* Text Message Content */}
+                    {msg.content && msg.messageType !== 'audio' && msg.messageType !== 'video_note' && (
+                      <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed select-text">
+                        {msg.content}
+                      </p>
+                    )}
+
+                    {/* Message Timestamp, (edited) indicator, and Delivery Status */}
+                    <div
+                      className={`flex items-center justify-end gap-1 mt-1 text-[10px] ${
+                        isMe ? 'text-rose-100' : 'text-stone-400'
+                      }`}
+                    >
+                      {msg.isEdited && !isDeleted && (
+                        <span className="text-[9px] italic opacity-85 mr-0.5">(edited)</span>
+                      )}
+                      <span>{formatMessageTime(msg.createdAt)}</span>
+
+                      {/* Delivery & Read Receipts Status for sender's messages */}
+                      {isMe && !isDeleted && (
+                        <span className="flex items-center ml-0.5">
+                          {isRead ? (
+                            <CheckCheck size={14} className="text-sky-300 stroke-[2.5]" title="Seen" />
+                          ) : isDelivered ? (
+                            <CheckCheck size={14} className="text-rose-200 stroke-[2]" title="Delivered" />
+                          ) : (
+                            <Check size={14} className="text-rose-200" title="Sent" />
+                          )}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Attached Reactions */}
+                    {msg.reactions && msg.reactions.length > 0 && (
+                      <div className="absolute -bottom-2.5 left-2 flex items-center gap-1 bg-white border border-rose-100 rounded-full px-1.5 py-0.5 shadow-2xs">
+                        {msg.reactions.map((r, i) => (
+                          <span key={i} className="text-xs" title={r.userName}>
+                            {r.emoji}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
 
-                  {/* Attached Reactions */}
-                  {msg.reactions && msg.reactions.length > 0 && (
-                    <div className="absolute -bottom-2.5 left-2 flex items-center gap-1 bg-white border border-rose-100 rounded-full px-1.5 py-0.5 shadow-2xs">
-                      {msg.reactions.map((r, i) => (
-                        <span key={i} className="text-xs" title={r.userName}>
-                          {r.emoji}
-                        </span>
-                      ))}
-                    </div>
+                  {/* Desktop Quick Action 3-dots Button */}
+                  {!isDeleted && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveActionMessage(msg);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-stone-700 hover:bg-white/80 rounded-full transition-opacity cursor-pointer shrink-0"
+                      title="Message options"
+                    >
+                      <MoreVertical size={14} />
+                    </button>
                   )}
                 </div>
+              </motion.div>
+            );
+          })}
 
-                {/* Quick Action Button on Hover */}
-                {!isDeleted && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedMessageMenuId(isMenuOpen ? null : msg._id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-all cursor-pointer"
-                  >
-                    <Smile size={14} />
-                  </button>
-                )}
-
-                {/* Emoji Reaction Popover Menu */}
-                {isMenuOpen && !isDeleted && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9, y: 5 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    className={`absolute z-30 -top-10 ${
-                      isMe ? 'right-0' : 'left-0'
-                    } bg-white rounded-full shadow-lg border border-rose-100 p-1 flex items-center gap-1`}
-                  >
-                    {romanticConfig.quickReactions.map((emoji) => (
-                      <button
-                        key={emoji}
-                        onClick={() => handleReact(msg._id, emoji)}
-                        className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-rose-50 text-sm hover:scale-125 transition-transform cursor-pointer"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-
-                    <div className="w-[1px] h-4 bg-stone-200 mx-0.5" />
-
-                    <button
-                      onClick={() => {
-                        setReplyingTo(msg);
-                        setSelectedMessageMenuId(null);
-                      }}
-                      title="Reply"
-                      className="p-1.5 rounded-full hover:bg-stone-100 text-stone-500 hover:text-stone-800 transition-colors cursor-pointer"
-                    >
-                      <Reply size={13} />
-                    </button>
-
-                    {isMe && (
-                      <button
-                        onClick={() => handleDeleteMessage(msg._id)}
-                        title="Delete for everyone"
-                        className="p-1.5 rounded-full hover:bg-rose-50 text-stone-400 hover:text-rose-500 transition-colors cursor-pointer"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </motion.div>
-                )}
-              </div>
-            </motion.div>
-          );
-        })}
-
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -878,89 +1091,180 @@ export const ChatRoomPage = () => {
           )}
         </AnimatePresence>
 
-        {/* Chat Input Controls */}
-        <div className="p-3">
-          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            {/* File Upload Hidden Input */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              className="hidden"
-              accept="image/*,video/*,application/pdf,application/msword,text/*"
-            />
+        {/* Chat Input Controls & Voice Note Live Tray */}
+        <div className="p-2.5 sm:p-3">
+          {isRecordingVoice ? (
+            /* Live Voice Note Recording Tray (WhatsApp Style) */
+            <div className="flex items-center gap-3 py-1 px-2 bg-rose-50/90 rounded-2xl border border-rose-200 animate-pulse">
+              {/* Blinking red recording dot */}
+              <div className="flex items-center gap-2 text-rose-600 font-mono text-xs font-bold shrink-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
+                <span>{formatVoiceTime(voiceSeconds)}</span>
+              </div>
 
-            {/* Attachment Button */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              title="Attach photo or document"
-              className="p-2 text-stone-400 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
-            >
-              {uploading ? (
-                <div className="w-5 h-5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+              {/* Animated wave bars */}
+              <div className="flex-1 flex items-center justify-center gap-1 h-6">
+                {[12, 24, 18, 30, 16, 28, 20, 26, 14, 22].map((h, i) => (
+                  <span
+                    key={i}
+                    style={{ height: `${(h / 30) * 100}%` }}
+                    className="w-[3px] bg-rose-400 rounded-full animate-bounce"
+                  />
+                ))}
+              </div>
+
+              {/* Cancel (Trash) button */}
+              <button
+                type="button"
+                onClick={cancelVoiceRecording}
+                className="p-2 text-stone-500 hover:text-red-500 rounded-full hover:bg-stone-200/60 transition-colors cursor-pointer"
+                title="Discard voice note"
+              >
+                <Trash2 size={17} />
+              </button>
+
+              {/* Send Voice Note button */}
+              <button
+                type="button"
+                onClick={sendVoiceRecording}
+                disabled={uploading}
+                className="w-10 h-10 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shadow-md active:scale-95 transition-all cursor-pointer"
+                title="Send voice note"
+              >
+                {uploading ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send size={16} />
+                )}
+              </button>
+            </div>
+          ) : (
+            /* Standard Input Bar */
+            <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 sm:gap-2">
+              {/* File Upload Hidden Input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                className="hidden"
+                accept="image/*,video/*,application/pdf,application/msword,text/*"
+              />
+
+              {/* Attachment Button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                title="Attach photo or document"
+                className="p-2 text-stone-400 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+              >
+                {uploading ? (
+                  <div className="w-5 h-5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Paperclip size={19} />
+                )}
+              </button>
+
+              {/* Circular Video Note Trigger Button */}
+              <button
+                type="button"
+                onClick={() => setIsVideoNoteOpen(true)}
+                title="Record circular video note"
+                className="p-2 text-stone-400 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+              >
+                <Video size={19} />
+              </button>
+
+              {/* Emoji Tray Toggle */}
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                title="Romantic emojis"
+                className="p-2 text-stone-400 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+              >
+                <Smile size={19} />
+              </button>
+
+              {/* Input Field */}
+              <input
+                type="text"
+                value={inputText}
+                onChange={handleInputChange}
+                onFocus={() => {
+                  setTimeout(() => {
+                    if (window.visualViewport) {
+                      setViewportHeight(window.visualViewport.height);
+                      setViewportTop(window.visualViewport.offsetTop);
+                      setIsKeyboardOpen(window.innerHeight - window.visualViewport.height > 100);
+                    }
+                    window.scrollTo(0, 0);
+                    scrollToBottom('smooth');
+                  }, 120);
+                  setTimeout(() => {
+                    window.scrollTo(0, 0);
+                    scrollToBottom('smooth');
+                  }, 350);
+                }}
+                onBlur={() => {
+                  setTimeout(() => {
+                    if (window.visualViewport) {
+                      setViewportHeight(window.visualViewport.height);
+                      setViewportTop(window.visualViewport.offsetTop);
+                      setIsKeyboardOpen(window.innerHeight - window.visualViewport.height > 100);
+                    }
+                    window.scrollTo(0, 0);
+                  }, 100);
+                }}
+                placeholder="Send something sweet..."
+                className="flex-1 py-2 px-3.5 rounded-2xl bg-stone-100/90 focus:bg-white border border-transparent focus:border-rose-200 text-stone-800 placeholder-stone-400 text-sm focus:outline-none transition-all"
+              />
+
+              {/* Toggle Send button OR Mic button (like WhatsApp) */}
+              {inputText.trim() ? (
+                <button
+                  type="submit"
+                  disabled={!inputText.trim()}
+                  aria-label="Send message"
+                  className="w-10 h-10 rounded-2xl bg-rose-500 hover:bg-rose-600 disabled:opacity-30 disabled:hover:bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-xs active:scale-95 transition-all cursor-pointer"
+                >
+                  <Send size={16} />
+                </button>
               ) : (
-                <Paperclip size={19} />
+                <button
+                  type="button"
+                  onClick={startVoiceRecording}
+                  aria-label="Record voice note"
+                  title="Tap to record voice note"
+                  className="w-10 h-10 rounded-2xl bg-rose-500/90 hover:bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs active:scale-95 transition-all cursor-pointer"
+                >
+                  <Mic size={18} />
+                </button>
               )}
-            </button>
-
-            {/* Emoji Tray Toggle */}
-            <button
-              type="button"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              title="Romantic emojis"
-              className="p-2 text-stone-400 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
-            >
-              <Smile size={19} />
-            </button>
-
-            {/* Input Field */}
-            <input
-              type="text"
-              value={inputText}
-              onChange={handleInputChange}
-              onFocus={() => {
-                setTimeout(() => {
-                  if (window.visualViewport) {
-                    setViewportHeight(window.visualViewport.height);
-                    setViewportTop(window.visualViewport.offsetTop);
-                    setIsKeyboardOpen(window.innerHeight - window.visualViewport.height > 100);
-                  }
-                  window.scrollTo(0, 0);
-                  scrollToBottom('smooth');
-                }, 120);
-                setTimeout(() => {
-                  window.scrollTo(0, 0);
-                  scrollToBottom('smooth');
-                }, 350);
-              }}
-              onBlur={() => {
-                setTimeout(() => {
-                  if (window.visualViewport) {
-                    setViewportHeight(window.visualViewport.height);
-                    setViewportTop(window.visualViewport.offsetTop);
-                    setIsKeyboardOpen(window.innerHeight - window.visualViewport.height > 100);
-                  }
-                  window.scrollTo(0, 0);
-                }, 100);
-              }}
-              placeholder="Send something sweet..."
-              className="flex-1 py-2 px-3.5 rounded-2xl bg-stone-100/90 focus:bg-white border border-transparent focus:border-rose-200 text-stone-800 placeholder-stone-400 text-sm focus:outline-none transition-all"
-            />
-
-            {/* Send Button */}
-            <button
-              type="submit"
-              disabled={!inputText.trim()}
-              aria-label="Send message"
-              className="w-10 h-10 rounded-2xl bg-rose-500 hover:bg-rose-600 disabled:opacity-30 disabled:hover:bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-xs active:scale-95 transition-all cursor-pointer"
-            >
-              <Send size={16} />
-            </button>
-          </form>
+            </form>
+          )}
         </div>
       </div>
+
+      {/* Circular Video Note Recorder Modal */}
+      <VideoNoteRecorderModal
+        isOpen={isVideoNoteOpen}
+        onClose={() => setIsVideoNoteOpen(false)}
+        onSendVideoNote={handleSendVideoNote}
+      />
+
+      {/* WhatsApp-Style Message Action Modal (Reply, Edit, Delete for everyone/me, Copy, Reactions) */}
+      <MessageActionModal
+        message={activeActionMessage}
+        isMe={
+          (activeActionMessage?.senderId?._id || activeActionMessage?.senderId)?.toString() ===
+          user?._id?.toString()
+        }
+        onClose={() => setActiveActionMessage(null)}
+        onReply={(msg) => setReplyingTo(msg)}
+        onReact={(msgId, emoji) => handleReact(msgId, emoji)}
+        onEdit={(msgId, newContent) => handleEditMessage(msgId, newContent)}
+        onDelete={(msgId, type) => handleDeleteMessage(msgId, type)}
+      />
     </div>
   );
 };

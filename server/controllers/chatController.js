@@ -103,7 +103,11 @@ exports.getMessages = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    const messages = await Message.find({ conversationId })
+    // Filter out messages that current user marked "delete for me"
+    const messages = await Message.find({
+      conversationId,
+      deletedFor: { $ne: currentUserId }
+    })
       .populate('senderId', 'username displayName avatar')
       .sort({ createdAt: 1 });
 
@@ -134,7 +138,7 @@ exports.getMessages = async (req, res) => {
 exports.sendMessage = async (req, res) => {
   try {
     const senderId = req.user._id;
-    const { conversationId, content, messageType, fileUrl, fileName, fileSize, replyTo } = req.body;
+    const { conversationId, content, messageType, fileUrl, fileName, fileSize, duration, replyTo } = req.body;
 
     if (!conversationId) {
       return res.status(400).json({ success: false, message: 'Conversation ID is required.' });
@@ -168,6 +172,7 @@ exports.sendMessage = async (req, res) => {
       fileUrl: fileUrl || '',
       fileName: fileName || '',
       fileSize: fileSize || 0,
+      duration: duration || 0,
       replyTo: replyTo || undefined,
       deliveredTo: [],
       readBy: []
@@ -204,6 +209,61 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
+// @route PUT /api/chat/messages/:id
+// WhatsApp-style Edit Message
+exports.editMessage = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const { id } = req.params;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({ success: false, message: 'Message content cannot be empty.' });
+    }
+
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ success: false, message: 'Message not found.' });
+    }
+
+    if (message.senderId.toString() !== currentUserId.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only edit your own messages.' });
+    }
+
+    if (message.isDeleted) {
+      return res.status(400).json({ success: false, message: 'Cannot edit a deleted message.' });
+    }
+
+    message.content = content.trim();
+    message.isEdited = true;
+    message.editedAt = new Date();
+    await message.save();
+
+    const io = getIO(req);
+    if (io) {
+      io.to(`conv_${message.conversationId}`).emit('message_edited', {
+        messageId: message._id,
+        content: message.content,
+        isEdited: true,
+        editedAt: message.editedAt
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: {
+        _id: message._id,
+        content: message.content,
+        isEdited: message.isEdited,
+        editedAt: message.editedAt
+      }
+    });
+  } catch (error) {
+    console.error('Edit message error:', error);
+    res.status(500).json({ success: false, message: 'Failed to edit message.' });
+  }
+};
+
 // @route POST /api/chat/messages/:id/react
 exports.reactToMessage = async (req, res) => {
   try {
@@ -220,17 +280,15 @@ exports.reactToMessage = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Message not found.' });
     }
 
-    // Toggle reaction: if user already gave this emoji, remove it; if different emoji, update; if none, add
+    // Toggle reaction
     const existingIndex = message.reactions.findIndex(
       (r) => r.userId.toString() === currentUserId.toString()
     );
 
     if (existingIndex > -1) {
       if (message.reactions[existingIndex].emoji === emoji) {
-        // Remove reaction
         message.reactions.splice(existingIndex, 1);
       } else {
-        // Change reaction
         message.reactions[existingIndex].emoji = emoji;
         message.reactions[existingIndex].userName = req.user.displayName;
       }
@@ -260,18 +318,40 @@ exports.reactToMessage = async (req, res) => {
 };
 
 // @route DELETE /api/chat/messages/:id
+// WhatsApp-style: Delete for everyone OR Delete for me
 exports.deleteMessage = async (req, res) => {
   try {
     const currentUserId = req.user._id;
     const { id } = req.params;
+    const deleteType = req.query.type || 'everyone'; // 'everyone' or 'me'
 
     const message = await Message.findById(id);
     if (!message) {
       return res.status(404).json({ success: false, message: 'Message not found.' });
     }
 
+    const io = getIO(req);
+
+    if (deleteType === 'me') {
+      // Delete for current user only
+      if (!message.deletedFor.some((uid) => uid.toString() === currentUserId.toString())) {
+        message.deletedFor.push(currentUserId);
+        await message.save();
+      }
+
+      if (io) {
+        io.to(`user_${currentUserId}`).emit('message_deleted_for_me', {
+          messageId: message._id,
+          conversationId: message.conversationId
+        });
+      }
+
+      return res.status(200).json({ success: true, message: 'Message deleted for you.' });
+    }
+
+    // Delete for everyone (only author can do this)
     if (message.senderId.toString() !== currentUserId.toString()) {
-      return res.status(403).json({ success: false, message: 'You can only delete your own messages.' });
+      return res.status(403).json({ success: false, message: 'You can only delete your own messages for everyone.' });
     }
 
     message.isDeleted = true;
@@ -280,14 +360,13 @@ exports.deleteMessage = async (req, res) => {
     message.fileName = '';
     await message.save();
 
-    const io = getIO(req);
     if (io) {
       io.to(`conv_${message.conversationId}`).emit('message_deleted', {
         messageId: message._id
       });
     }
 
-    res.status(200).json({ success: true, message: 'Message deleted successfully.' });
+    res.status(200).json({ success: true, message: 'Message deleted for everyone.' });
   } catch (error) {
     console.error('Delete message error:', error);
     res.status(500).json({ success: false, message: 'Failed to delete message.' });
@@ -310,7 +389,7 @@ exports.markAsRead = async (req, res) => {
     await conversation.save();
 
     // Mark unread messages sent by others as read
-    const result = await Message.updateMany(
+    await Message.updateMany(
       {
         conversationId: id,
         senderId: { $ne: currentUserId },
