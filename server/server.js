@@ -10,7 +10,7 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const { Server } = require('socket.io');
 
-const { connectDB } = require('./config/db');
+const { connectDB, closeDB } = require('./config/db');
 const { setupSocket } = require('./socket/socketHandler');
 
 const authRoutes = require('./routes/authRoutes');
@@ -74,14 +74,15 @@ if (!fs.existsSync(uploadsDir)) {
 // Static folder for uploaded chat media
 app.use('/uploads', express.static(uploadsDir));
 
-// Socket.IO configuration with ping timeout & CORS
+// Socket.IO configuration with responsive ping timeout & CORS
 const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
     credentials: true
   },
-  pingTimeout: 60000,
+  pingInterval: 10000,
+  pingTimeout: 15000,
   maxHttpBufferSize: 25 * 1024 * 1024 // 25 MB max payload for attachments
 });
 
@@ -145,3 +146,15 @@ server.listen(PORT, '0.0.0.0', () => {
 
 // Connect to MongoDB Atlas / remote database with retries
 connectDB();
+
+// Graceful shutdown handling
+const gracefulShutdown = async () => {
+  console.log('\nGracefully shutting down server...');
+  try {
+    await closeDB();
+  } catch (e) {}
+  process.exit(0);
+};
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);

@@ -212,7 +212,7 @@ export const TodoPage = () => {
       </AnimatePresence>
 
       {/* Main Container */}
-      <div className="flex-1 max-w-xl w-full mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-16">
+      <div className="flex-1 max-w-xl w-full mx-auto px-4 sm:px-6 pt-safe sm:pt-10 pb-16">
         {/* Header Section */}
         <header className="mb-8">
           <div className="flex items-center justify-between mb-3">

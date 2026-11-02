@@ -53,6 +53,7 @@ export const SocketProvider = ({ children }) => {
         socket.disconnect();
         setSocket(null);
         setIsConnected(false);
+        setOnlineUsers(new Set());
       }
       return;
     }
@@ -61,26 +62,37 @@ export const SocketProvider = ({ children }) => {
     const newSocket = io(socketUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 15,
       reconnectionDelay: 1000
     });
 
     newSocket.on('connect', () => {
       console.log('Socket.IO connected as user:', user?.username);
       setIsConnected(true);
+      newSocket.emit('get_online_users');
     });
 
     newSocket.on('disconnect', () => {
       setIsConnected(false);
+      setOnlineUsers(new Set());
+    });
+
+    // Receive the authoritative list of currently connected user IDs
+    newSocket.on('initial_online_users', (userIds) => {
+      if (Array.isArray(userIds)) {
+        setOnlineUsers(new Set(userIds.map((id) => id.toString())));
+      }
     });
 
     newSocket.on('user_status_changed', ({ userId, isOnline }) => {
+      if (!userId) return;
+      const idStr = userId.toString();
       setOnlineUsers((prev) => {
         const next = new Set(prev);
         if (isOnline) {
-          next.add(userId);
+          next.add(idStr);
         } else {
-          next.delete(userId);
+          next.delete(idStr);
         }
         return next;
       });
@@ -128,12 +140,19 @@ export const SocketProvider = ({ children }) => {
     };
   }, [token, isAuthenticated, user]);
 
+  const refreshOnlineUsers = () => {
+    if (socket && socket.connected) {
+      socket.emit('get_online_users');
+    }
+  };
+
   return (
     <SocketContext.Provider
       value={{
         socket,
         isConnected,
         onlineUsers,
+        refreshOnlineUsers,
         requestNotificationPermission,
         subscribeUserToPush
       }}
@@ -150,6 +169,7 @@ export const useSocket = () => {
       socket: null,
       isConnected: false,
       onlineUsers: new Set(),
+      refreshOnlineUsers: () => {},
       requestNotificationPermission: () => {},
       subscribeUserToPush: () => Promise.resolve(null)
     }

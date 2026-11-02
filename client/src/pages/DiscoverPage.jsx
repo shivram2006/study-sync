@@ -71,7 +71,7 @@ export const DiscoverPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFBFB] text-stone-800 flex flex-col font-sans-clean antialiased pb-20 sm:pb-8">
+    <div className="min-h-screen bg-[#FFFBFB] text-stone-800 flex flex-col font-sans-clean antialiased pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] sm:pb-8">
       <Navbar />
 
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6">
@@ -133,7 +133,7 @@ export const DiscoverPage = () => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {users.map((item) => {
-              const isOnline = onlineUsers.has(item._id) || item.isOnline;
+              const isOnline = Boolean(item && item._id && onlineUsers.has(item._id.toString()));
               const isLoading = actionLoadingId === item._id;
 
               return (

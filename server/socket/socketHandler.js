@@ -47,8 +47,11 @@ const setupSocket = (io) => {
     }
     activeUserSockets.get(userId).add(socket.id);
 
-    // Join personal user room for direct notifications
+    // Join personal user room for direct notifications & WebRTC call signaling
     socket.join(`user_${userId}`);
+
+    // Immediately send the exact list of currently online user IDs to the connected client
+    socket.emit('initial_online_users', Array.from(activeUserSockets.keys()));
 
     // Update online status in DB
     try {
@@ -65,6 +68,11 @@ const setupSocket = (io) => {
     } catch (err) {
       console.error('Error updating online status:', err);
     }
+
+    // Client request to get list of currently online users
+    socket.on('get_online_users', () => {
+      socket.emit('initial_online_users', Array.from(activeUserSockets.keys()));
+    });
 
     // Join a specific conversation room
     socket.on('join_conversation', async ({ conversationId }) => {
@@ -99,11 +107,11 @@ const setupSocket = (io) => {
       socket.leave(`conv_${conversationId}`);
     });
 
-    // Mark messages as read / seen
+    // Mark messages as read / seen (called ONLY when client is active & viewing the chat)
     socket.on('mark_seen', async ({ conversationId }) => {
       if (!conversationId) return;
       try {
-        await Message.updateMany(
+        const updateResult = await Message.updateMany(
           {
             conversationId,
             senderId: { $ne: userId },
@@ -121,10 +129,12 @@ const setupSocket = (io) => {
           await conv.save();
         }
 
-        io.to(`conv_${conversationId}`).emit('messages_read', {
-          conversationId,
-          readerId: userId
-        });
+        if (updateResult.modifiedCount > 0 || (conv && conv.unreadCounts.get(userId) > 0)) {
+          io.to(`conv_${conversationId}`).emit('messages_read', {
+            conversationId,
+            readerId: userId
+          });
+        }
       } catch (err) {
         console.error('Error marking messages as seen:', err);
       }
@@ -165,6 +175,63 @@ const setupSocket = (io) => {
       }
     });
 
+    // =========================================================================
+    // WebRTC Audio / Video Call Signaling
+    // =========================================================================
+
+    // Caller initiates a call to recipient
+    socket.on('call_user', ({ recipientId, conversationId, callType, offer, callerInfo }) => {
+      if (!recipientId) return;
+
+      io.to(`user_${recipientId}`).emit('incoming_call', {
+        callerId: userId,
+        callerInfo: callerInfo || {
+          _id: userId,
+          displayName: user.displayName,
+          avatar: user.avatar,
+          username: user.username
+        },
+        conversationId,
+        callType: callType || 'video',
+        offer
+      });
+    });
+
+    // Recipient answers the call with WebRTC answer
+    socket.on('answer_call', ({ targetUserId, answer }) => {
+      if (!targetUserId) return;
+      io.to(`user_${targetUserId}`).emit('call_answered', {
+        responderId: userId,
+        answer
+      });
+    });
+
+    // Peer exchanges ICE candidates
+    socket.on('ice_candidate', ({ targetUserId, candidate }) => {
+      if (!targetUserId || !candidate) return;
+      io.to(`user_${targetUserId}`).emit('ice_candidate', {
+        fromUserId: userId,
+        candidate
+      });
+    });
+
+    // Recipient declines / rejects call
+    socket.on('reject_call', ({ targetUserId, reason }) => {
+      if (!targetUserId) return;
+      io.to(`user_${targetUserId}`).emit('call_rejected', {
+        fromUserId: userId,
+        reason: reason || 'declined'
+      });
+    });
+
+    // Either peer ends / cancels an active or pending call
+    socket.on('end_call', ({ targetUserId }) => {
+      if (!targetUserId) return;
+      io.to(`user_${targetUserId}`).emit('call_ended', {
+        fromUserId: userId
+      });
+    });
+
     // Disconnect handling
     socket.on('disconnect', async () => {
       const userSockets = activeUserSockets.get(userId);
@@ -192,4 +259,4 @@ const setupSocket = (io) => {
   });
 };
 
-module.exports = { setupSocket };
+module.exports = { setupSocket, activeUserSockets };

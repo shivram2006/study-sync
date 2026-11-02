@@ -10,6 +10,16 @@ try {
 
 let mongodInstance = null;
 
+const resetOnlineStatuses = async () => {
+  try {
+    const User = require('../models/User');
+    await User.updateMany({}, { isOnline: false });
+    console.log('Reset all user online statuses to offline on boot.');
+  } catch (err) {
+    console.error('Error resetting user online statuses on startup:', err.message);
+  }
+};
+
 const connectDB = async (retries = 5) => {
   const rawUri = process.env.MONGODB_URI?.trim();
 
@@ -30,6 +40,7 @@ const connectDB = async (retries = 5) => {
           dbName: 'studysync'
         });
         console.log('MongoDB Atlas / Remote Database Connected Successfully.');
+        await resetOnlineStatuses();
         return;
       } catch (err) {
         console.error(`MongoDB connection attempt ${attempt}/${retries} failed:`, err.message);
@@ -58,6 +69,7 @@ const connectDB = async (retries = 5) => {
       await mongoose.connect(memoryUri);
       console.log(`Connected to in-memory MongoDB at: ${memoryUri}`);
       console.log('NOTE: To persist data across server restarts, add your MongoDB Atlas URI in server/.env');
+      await resetOnlineStatuses();
     } catch (err) {
       console.error('Error starting in-memory database:', err.message);
     }
@@ -68,12 +80,14 @@ const connectDB = async (retries = 5) => {
 
 const closeDB = async () => {
   try {
+    const User = require('../models/User');
+    await User.updateMany({}, { isOnline: false });
     await mongoose.connection.close();
     if (mongodInstance) {
       await mongodInstance.stop();
     }
   } catch (err) {
-    console.error('Error closing database:', err.message);
+    console.error('Error closing database:', err);
   }
 };
 

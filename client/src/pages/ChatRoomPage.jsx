@@ -15,11 +15,14 @@ import {
   FileText,
   Download,
   Heart,
-  Sparkles
+  Sparkles,
+  Phone,
+  Video
 } from 'lucide-react';
 import { chatService } from '../services/chatService';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { useCall } from '../context/CallContext';
 import { romanticConfig } from '../utils/romanticConfig';
 import { formatLastSeen, formatMessageTime } from '../utils/dateUtils';
 import confetti from 'canvas-confetti';
@@ -29,6 +32,7 @@ export const ChatRoomPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { socket, onlineUsers } = useSocket();
+  const { startCall } = useCall();
 
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -50,6 +54,19 @@ export const ChatRoomPage = () => {
   // Auto-scroll to bottom of messages
   const scrollToBottom = (behavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
+  };
+
+  // Safe mark-as-seen trigger: ONLY marks messages as read when the tab is actively visible to the user
+  const triggerMarkAsSeen = () => {
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+    if (!conversationId) return;
+
+    chatService.markAsRead(conversationId).catch(() => {});
+    if (socket && socket.connected) {
+      socket.emit('mark_seen', { conversationId });
+    }
   };
 
   // Load conversation details & messages
@@ -79,13 +96,29 @@ export const ChatRoomPage = () => {
     loadChatData();
   }, [conversationId]);
 
-  // Mark messages as read on view
+  // Mark messages as read ONLY when user is actively viewing the chat window
   useEffect(() => {
     if (!conversationId) return;
-    chatService.markAsRead(conversationId).catch(() => {});
-    if (socket) {
-      socket.emit('mark_seen', { conversationId });
+
+    // Initial check: only mark seen if document is currently visible
+    if (document.visibilityState === 'visible') {
+      triggerMarkAsSeen();
     }
+
+    // Trigger mark seen whenever user returns to or focuses this window/tab
+    const onVisibilityOrFocusChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerMarkAsSeen();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityOrFocusChange);
+    window.addEventListener('focus', onVisibilityOrFocusChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityOrFocusChange);
+      window.removeEventListener('focus', onVisibilityOrFocusChange);
+    };
   }, [conversationId, socket]);
 
   // Real-time socket events
@@ -102,8 +135,13 @@ export const ChatRoomPage = () => {
         });
         scrollToBottom();
 
-        // Mark as seen immediately if active
-        socket.emit('mark_seen', { conversationId });
+        // ONLY mark as seen if message is sent by partner AND user is actively viewing the page
+        const senderId = (message.senderId?._id || message.senderId)?.toString();
+        const currentUserId = user?._id?.toString();
+
+        if (senderId && senderId !== currentUserId && document.visibilityState === 'visible') {
+          triggerMarkAsSeen();
+        }
       }
     };
 
@@ -126,7 +164,9 @@ export const ChatRoomPage = () => {
     const handleMessagesRead = ({ readerId }) => {
       setMessages((prev) =>
         prev.map((m) => {
-          if (m.senderId._id === user._id && !m.readBy.includes(readerId)) {
+          const currentUserId = user?._id?.toString();
+          const senderId = (m.senderId?._id || m.senderId)?.toString();
+          if (senderId === currentUserId && !m.readBy.some((r) => r.toString() === readerId.toString())) {
             return {
               ...m,
               readBy: [...m.readBy, readerId],
@@ -141,7 +181,9 @@ export const ChatRoomPage = () => {
     const handleDelivered = ({ userId }) => {
       setMessages((prev) =>
         prev.map((m) => {
-          if (m.senderId._id === user._id && !m.deliveredTo.includes(userId)) {
+          const currentUserId = user?._id?.toString();
+          const senderId = (m.senderId?._id || m.senderId)?.toString();
+          if (senderId === currentUserId && !m.deliveredTo.some((d) => d.toString() === userId.toString())) {
             return { ...m, deliveredTo: [...m.deliveredTo, userId] };
           }
           return m;
@@ -161,6 +203,23 @@ export const ChatRoomPage = () => {
       }
     };
 
+    const handleUserStatusChanged = ({ userId, isOnline, lastSeen }) => {
+      setConversation((prev) => {
+        if (!prev || !prev.recipient) return prev;
+        if (prev.recipient._id?.toString() === userId?.toString()) {
+          return {
+            ...prev,
+            recipient: {
+              ...prev.recipient,
+              isOnline,
+              lastSeen: lastSeen || new Date()
+            }
+          };
+        }
+        return prev;
+      });
+    };
+
     socket.on('new_message', handleNewMessage);
     socket.on('message_reaction_updated', handleReaction);
     socket.on('message_deleted', handleDelete);
@@ -168,6 +227,7 @@ export const ChatRoomPage = () => {
     socket.on('messages_delivered', handleDelivered);
     socket.on('user_typing', handlePartnerTyping);
     socket.on('user_stop_typing', handlePartnerStopTyping);
+    socket.on('user_status_changed', handleUserStatusChanged);
 
     return () => {
       socket.emit('leave_conversation', { conversationId });
@@ -178,6 +238,7 @@ export const ChatRoomPage = () => {
       socket.off('messages_delivered', handleDelivered);
       socket.off('user_typing', handlePartnerTyping);
       socket.off('user_stop_typing', handlePartnerStopTyping);
+      socket.off('user_status_changed', handleUserStatusChanged);
     };
   }, [socket, conversationId, user]);
 
@@ -323,7 +384,10 @@ export const ChatRoomPage = () => {
   };
 
   const partner = conversation?.recipient;
-  const isPartnerOnline = partner && (onlineUsers.has(partner._id) || partner.isOnline);
+  // Authoritative real-time online check from SocketContext
+  const isPartnerOnline = Boolean(
+    partner && partner._id && onlineUsers.has(partner._id.toString())
+  );
 
   return (
     <div className="h-screen-dvh flex flex-col bg-[#FAF7F7] text-stone-800 font-sans-clean overflow-hidden select-none">
@@ -344,9 +408,10 @@ export const ChatRoomPage = () => {
               className="w-10 h-10 rounded-full object-cover border border-rose-200"
             />
             <span
-              className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
+              className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white transition-colors duration-300 ${
                 isPartnerOnline ? 'bg-emerald-500' : 'bg-stone-300'
               }`}
+              title={isPartnerOnline ? 'Online' : 'Offline'}
             />
           </div>
 
@@ -366,17 +431,62 @@ export const ChatRoomPage = () => {
           </div>
         </div>
 
-        {/* Small Disguise / To-Do Switcher */}
-        <button
-          onClick={() => {
-            sessionStorage.removeItem('zenith_sanctuary_unlocked');
-            navigate('/');
-          }}
-          title="Switch to To-Do mode"
-          className="p-2 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
-        >
-          <Sparkles size={17} className="text-rose-400" />
-        </button>
+        {/* Audio & Video Calling Buttons + Disguise Switcher */}
+        <div className="flex items-center gap-1 sm:gap-1.5">
+          {/* Audio Call Button */}
+          <button
+            onClick={() =>
+              partner &&
+              startCall({
+                recipient: partner,
+                conversationId,
+                callType: 'audio'
+              })
+            }
+            disabled={!isPartnerOnline}
+            title={isPartnerOnline ? 'Start Audio Call' : 'Partner is currently offline'}
+            className={`p-2 rounded-full transition-all cursor-pointer ${
+              isPartnerOnline
+                ? 'text-stone-700 hover:text-rose-600 hover:bg-rose-50 active:scale-95'
+                : 'text-stone-300 cursor-not-allowed opacity-50'
+            }`}
+          >
+            <Phone size={18} />
+          </button>
+
+          {/* Video Call Button */}
+          <button
+            onClick={() =>
+              partner &&
+              startCall({
+                recipient: partner,
+                conversationId,
+                callType: 'video'
+              })
+            }
+            disabled={!isPartnerOnline}
+            title={isPartnerOnline ? 'Start Video Call' : 'Partner is currently offline'}
+            className={`p-2 rounded-full transition-all cursor-pointer ${
+              isPartnerOnline
+                ? 'text-rose-500 hover:text-rose-600 hover:bg-rose-50 active:scale-95'
+                : 'text-stone-300 cursor-not-allowed opacity-50'
+            }`}
+          >
+            <Video size={18} />
+          </button>
+
+          {/* Small Disguise / To-Do Switcher */}
+          <button
+            onClick={() => {
+              sessionStorage.removeItem('zenith_sanctuary_unlocked');
+              navigate('/');
+            }}
+            title="Switch to To-Do mode"
+            className="p-2 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors ml-1"
+          >
+            <Sparkles size={17} className="text-rose-400" />
+          </button>
+        </div>
       </header>
 
       {/* Romantic Quote Bar */}
@@ -419,7 +529,9 @@ export const ChatRoomPage = () => {
 
         {/* Messages List */}
         {messages.map((msg) => {
-          const isMe = msg.senderId?._id === user._id || msg.senderId === user._id;
+          const currentUserId = user?._id?.toString();
+          const senderId = (msg.senderId?._id || msg.senderId)?.toString();
+          const isMe = senderId === currentUserId;
           const isDelivered = msg.deliveredTo?.length > 0;
           const isRead = msg.readBy?.length > 0;
           const isDeleted = msg.isDeleted;
@@ -561,63 +673,56 @@ export const ChatRoomPage = () => {
                       e.stopPropagation();
                       setSelectedMessageMenuId(isMenuOpen ? null : msg._id);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-stone-700 transition-opacity cursor-pointer"
+                    className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-all cursor-pointer"
                   >
                     <Smile size={14} />
                   </button>
                 )}
-              </div>
 
-              {/* Message Context / Action Menu */}
-              <AnimatePresence>
-                {isMenuOpen && (
+                {/* Emoji Reaction Popover Menu */}
+                {isMenuOpen && !isDeleted && (
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    onClick={(e) => e.stopPropagation()}
-                    className={`absolute z-30 top-full mt-1 bg-white rounded-2xl shadow-xl border border-rose-100 p-2 text-xs flex flex-col gap-1.5 ${
+                    initial={{ opacity: 0, scale: 0.9, y: 5 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    className={`absolute z-30 -top-10 ${
                       isMe ? 'right-0' : 'left-0'
-                    }`}
+                    } bg-white rounded-full shadow-lg border border-rose-100 p-1 flex items-center gap-1`}
                   >
-                    {/* Emoji Reaction Bar */}
-                    <div className="flex items-center gap-1.5 pb-1.5 border-b border-stone-100">
-                      {romanticConfig.reactions.map((emoji) => (
-                        <button
-                          key={emoji}
-                          onClick={() => handleReact(msg._id, emoji)}
-                          className="hover:scale-125 transition-transform text-base p-1 cursor-pointer"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-2">
+                    {romanticConfig.quickReactions.map((emoji) => (
                       <button
-                        onClick={() => {
-                          setReplyingTo(msg);
-                          setSelectedMessageMenuId(null);
-                        }}
-                        className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-stone-50 text-stone-700 cursor-pointer"
+                        key={emoji}
+                        onClick={() => handleReact(msg._id, emoji)}
+                        className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-rose-50 text-sm hover:scale-125 transition-transform cursor-pointer"
                       >
-                        <Reply size={13} />
-                        <span>Reply</span>
+                        {emoji}
                       </button>
+                    ))}
 
-                      {isMe && (
-                        <button
-                          onClick={() => handleDeleteMessage(msg._id)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-50 text-rose-600 cursor-pointer"
-                        >
-                          <Trash2 size={13} />
-                          <span>Delete</span>
-                        </button>
-                      )}
-                    </div>
+                    <div className="w-[1px] h-4 bg-stone-200 mx-0.5" />
+
+                    <button
+                      onClick={() => {
+                        setReplyingTo(msg);
+                        setSelectedMessageMenuId(null);
+                      }}
+                      title="Reply"
+                      className="p-1.5 rounded-full hover:bg-stone-100 text-stone-500 hover:text-stone-800 transition-colors cursor-pointer"
+                    >
+                      <Reply size={13} />
+                    </button>
+
+                    {isMe && (
+                      <button
+                        onClick={() => handleDeleteMessage(msg._id)}
+                        title="Delete for everyone"
+                        className="p-1.5 rounded-full hover:bg-rose-50 text-stone-400 hover:text-rose-500 transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </motion.div>
                 )}
-              </AnimatePresence>
+              </div>
             </motion.div>
           );
         })}
@@ -625,73 +730,70 @@ export const ChatRoomPage = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Typing Indicator & Reply Banner Area */}
-      <div className="bg-white/95 border-t border-rose-100 shrink-0">
+      {/* Footer Area: Reply preview + Input Bar */}
+      <div className="bg-white/95 backdrop-blur-md border-t border-rose-100/90 pb-safe z-20">
+        {/* Reply Bar Preview */}
         <AnimatePresence>
           {replyingTo && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="px-4 py-2 bg-rose-50/80 border-b border-rose-100 flex items-center justify-between text-xs"
+              className="px-4 py-2 bg-rose-50/80 border-b border-rose-100 flex items-center justify-between"
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 overflow-hidden text-xs">
                 <Reply size={14} className="text-rose-500 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-semibold text-rose-700 block truncate">
-                    Replying to {replyingTo.senderId?.displayName || 'User'}
-                  </span>
-                  <span className="text-stone-500 text-[11px] truncate block">
-                    {replyingTo.content || 'Attachment'}
-                  </span>
-                </div>
+                <span className="font-semibold text-rose-700 truncate">
+                  Replying to {replyingTo.senderId?.displayName || 'User'}:
+                </span>
+                <span className="text-stone-600 truncate">{replyingTo.content || 'Photo/File'}</span>
               </div>
               <button
                 onClick={() => setReplyingTo(null)}
-                className="p-1 text-stone-400 hover:text-stone-700"
+                className="text-stone-400 hover:text-stone-700 p-1 cursor-pointer"
               >
-                <X size={15} />
+                <X size={14} />
               </button>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Emoji Selector Tray */}
+        {/* Emoji Tray Popover */}
         <AnimatePresence>
           {showEmojiPicker && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="px-4 py-2 bg-white border-b border-rose-100 flex items-center gap-2 overflow-x-auto no-scrollbar"
+              className="p-3 bg-stone-50 border-b border-rose-100 flex flex-wrap gap-2 justify-center max-h-36 overflow-y-auto"
             >
-              {['❤️', '💖', '🥰', '😘', '🌸', '✨', '🥺', '🌹', '🕊️', '💌', '🧸', '🍓'].map(
-                (emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => {
-                      setInputText((prev) => prev + emoji);
-                    }}
-                    className="text-xl p-1.5 hover:scale-125 transition-transform cursor-pointer"
-                  >
-                    {emoji}
-                  </button>
-                )
-              )}
+              {[
+                '❤️', '💖', '💕', '🥰', '😘', '🌹', '✨', '🥺', '🫂', '💌', '🌸', '🕊️',
+                '💐', '💍', '🧸', '🍓', '☕', '🌙', '🌟', '😍', '💋', '🍯', '🍫', '🕯️'
+              ].map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => setInputText((prev) => prev + emoji)}
+                  className="text-xl p-1.5 hover:scale-125 transition-transform cursor-pointer"
+                >
+                  {emoji}
+                </button>
+              ))}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Fixed Message Composer with Safe Area Inset Support */}
-        <div className="p-3 pb-safe max-w-4xl mx-auto">
+        {/* Chat Input Controls */}
+        <div className="p-3">
           <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+            {/* File Upload Hidden Input */}
             <input
               type="file"
               ref={fileInputRef}
               onChange={handleFileUpload}
               className="hidden"
-              accept="image/*,.pdf,.doc,.docx,.txt"
+              accept="image/*,video/*,application/pdf,application/msword,text/*"
             />
 
             {/* Attachment Button */}

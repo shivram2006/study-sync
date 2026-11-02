@@ -44,7 +44,7 @@ export const PrivateChatDashboard = () => {
     fetchConversations();
   }, []);
 
-  // Real-time socket updates for unread counts and new conversations
+  // Real-time socket updates for unread counts, status, and new conversations
   useEffect(() => {
     if (!socket) return;
 
@@ -56,17 +56,37 @@ export const PrivateChatDashboard = () => {
       fetchConversations();
     };
 
+    const handleUserStatusChanged = ({ userId, isOnline, lastSeen }) => {
+      setConversations((prev) =>
+        prev.map((conv) => {
+          if (conv.recipient && conv.recipient._id?.toString() === userId?.toString()) {
+            return {
+              ...conv,
+              recipient: {
+                ...conv.recipient,
+                isOnline,
+                lastSeen: lastSeen || new Date()
+              }
+            };
+          }
+          return conv;
+        })
+      );
+    };
+
     socket.on('new_message', handleNewMessage);
     socket.on('friend_request_accepted', handleAccepted);
+    socket.on('user_status_changed', handleUserStatusChanged);
 
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('friend_request_accepted', handleAccepted);
+      socket.off('user_status_changed', handleUserStatusChanged);
     };
   }, [socket]);
 
   return (
-    <div className="min-h-screen bg-[#FFFBFB] text-stone-800 flex flex-col font-sans-clean antialiased pb-20 sm:pb-8">
+    <div className="min-h-screen bg-[#FFFBFB] text-stone-800 flex flex-col font-sans-clean antialiased pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] sm:pb-8">
       <Navbar />
 
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-5 sm:py-7">
@@ -77,19 +97,19 @@ export const PrivateChatDashboard = () => {
         />
 
         {/* Header bar */}
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-serif-romantic font-bold text-stone-900 tracking-tight">
+        <div className="flex items-center justify-between gap-2.5 mb-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-serif-romantic font-bold text-stone-900 tracking-tight truncate">
               Private Conversations
             </h1>
-            <p className="text-xs text-stone-500">
+            <p className="text-xs text-stone-500 line-clamp-1 sm:line-clamp-none">
               Only verified and accepted friends can exchange private messages.
             </p>
           </div>
 
           <button
             onClick={() => navigate('/discover')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-xs font-medium shadow-xs transition-all active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
           >
             <Plus size={14} />
             <span>Discover Partner</span>
@@ -134,7 +154,10 @@ export const PrivateChatDashboard = () => {
           <div className="space-y-2.5">
             {conversations.map((conv) => {
               const partner = conv.recipient;
-              const isPartnerOnline = partner && (onlineUsers.has(partner._id) || partner.isOnline);
+              // Authoritative real-time online check from SocketContext
+              const isPartnerOnline = Boolean(
+                partner && partner._id && onlineUsers.has(partner._id.toString())
+              );
               const lastMsg = conv.lastMessage;
 
               return (
@@ -154,7 +177,7 @@ export const PrivateChatDashboard = () => {
                         className="w-12 h-12 rounded-full object-cover border border-rose-100"
                       />
                       <span
-                        className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white ${
+                        className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white transition-colors duration-300 ${
                           isPartnerOnline ? 'bg-emerald-500' : 'bg-stone-300'
                         }`}
                         title={isPartnerOnline ? 'Online' : 'Offline'}

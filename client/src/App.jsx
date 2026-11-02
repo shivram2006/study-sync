@@ -2,6 +2,8 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
+import { CallProvider } from './context/CallContext';
+import { CallModal } from './components/call/CallModal';
 import { TodoPage } from './pages/TodoPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -71,75 +73,78 @@ export default function App() {
   return (
     <AuthProvider>
       <SocketProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* The Disguised To-Do Homepage - Always the default landing */}
-            <Route path="/" element={<TodoPage />} />
+        <CallProvider>
+          <CallModal />
+          <BrowserRouter>
+            <Routes>
+              {/* The Disguised To-Do Homepage - Always the default landing */}
+              <Route path="/" element={<TodoPage />} />
 
-            {/* Authentication (Only accessible via Code 2006) */}
-            <Route
-              path="/login"
-              element={
-                <PublicRoute>
-                  <LoginPage />
-                </PublicRoute>
-              }
-            />
-            <Route
-              path="/register"
-              element={
-                <PublicRoute>
-                  <RegisterPage />
-                </PublicRoute>
-              }
-            />
+              {/* Authentication (Only accessible via Code 2006) */}
+              <Route
+                path="/login"
+                element={
+                  <PublicRoute>
+                    <LoginPage />
+                  </PublicRoute>
+                }
+              />
+              <Route
+                path="/register"
+                element={
+                  <PublicRoute>
+                    <RegisterPage />
+                  </PublicRoute>
+                }
+              />
 
-            {/* Romantic Protected Sanctuary Routes (Requires Code 2006 + Login) */}
-            <Route
-              path="/private-chat"
-              element={
-                <ProtectedRoute>
-                  <PrivateChatDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/discover"
-              element={
-                <ProtectedRoute>
-                  <DiscoverPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/requests"
-              element={
-                <ProtectedRoute>
-                  <RequestsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/chat/:conversationId"
-              element={
-                <ProtectedRoute>
-                  <ChatRoomPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <ProtectedRoute>
-                  <ProfilePage />
-                </ProtectedRoute>
-              }
-            />
+              {/* Romantic Protected Sanctuary Routes (Requires Code 2006 + Login) */}
+              <Route
+                path="/private-chat"
+                element={
+                  <ProtectedRoute>
+                    <PrivateChatDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/discover"
+                element={
+                  <ProtectedRoute>
+                    <DiscoverPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/requests"
+                element={
+                  <ProtectedRoute>
+                    <RequestsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/chat/:conversationId"
+                element={
+                  <ProtectedRoute>
+                    <ChatRoomPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute>
+                    <ProfilePage />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Fallback directly to disguised To-Do homepage */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
+              {/* Fallback directly to disguised To-Do homepage */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </CallProvider>
       </SocketProvider>
     </AuthProvider>
   );

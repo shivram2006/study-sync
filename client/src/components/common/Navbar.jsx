@@ -94,78 +94,85 @@ export const Navbar = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-rose-100/70 pt-safe">
-      <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
-        {/* Brand / Logo */}
-        <Link to="/private-chat" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center border border-rose-100">
-            <Heart size={16} className="fill-rose-500" />
+    <>
+      {/* Top Header - Always sits safely below the notch/status bar via pt-safe */}
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-rose-100/70 pt-safe">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2">
+          {/* Brand / Logo */}
+          <Link to="/private-chat" className="flex items-center gap-2 shrink-0">
+            <div className="w-8 h-8 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center border border-rose-100">
+              <Heart size={16} className="fill-rose-500" />
+            </div>
+            <span className="font-serif-romantic text-base sm:text-lg font-bold text-stone-900 tracking-tight">
+              Our Sanctuary
+            </span>
+          </Link>
+
+          {/* Desktop Nav - Hidden on mobile */}
+          <nav className="hidden sm:flex items-center gap-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = location.pathname === item.to;
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={`relative px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-rose-50 text-rose-600 font-semibold'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-50'
+                  }`}
+                >
+                  <Icon size={15} />
+                  <span>{item.label}</span>
+                  {Boolean(item.badge) && item.badge > 0 && (
+                    <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold animate-pulse">
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Header Action Buttons */}
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Test Chime and Disguised Notification */}
+            <button
+              onClick={handleTestNotification}
+              title="Test Message Tone & Disguised Notification"
+              className="p-1.5 sm:p-2 rounded-full text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+            >
+              <Bell size={16} />
+            </button>
+
+            {/* Quick disguise button to lock and go back to To-Do list */}
+            <button
+              onClick={handleSwitchToTodo}
+              title="Disguise as To-Do List"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-medium transition-all cursor-pointer shadow-2xs"
+            >
+              <CheckSquare size={14} className="text-stone-500" />
+              <span className="hidden sm:inline">To-Do Mode</span>
+            </button>
+
+            {/* Log Out */}
+            <button
+              onClick={handleLogout}
+              title="Log Out"
+              className="p-1.5 sm:p-2 rounded-full text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
-          <span className="font-serif-romantic text-base sm:text-lg font-bold text-stone-900 tracking-tight">
-            Our Sanctuary
-          </span>
-        </Link>
-
-        {/* Center / Desktop Nav */}
-        <nav className="hidden sm:flex items-center gap-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname === item.to;
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`relative px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
-                  isActive
-                    ? 'bg-rose-50 text-rose-600 font-semibold'
-                    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-50'
-                }`}
-              >
-                <Icon size={15} />
-                <span>{item.label}</span>
-                {Boolean(item.badge) && item.badge > 0 && (
-                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold animate-pulse">
-                    {item.badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* Actions: Test Tone, Disguise Switcher to To-Do & Logout */}
-        <div className="flex items-center gap-2">
-          {/* Test Chime and Disguised Notification */}
-          <button
-            onClick={handleTestNotification}
-            title="Test Message Tone & Disguised Notification"
-            className="p-1.5 rounded-full text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-          >
-            <Bell size={16} />
-          </button>
-
-          {/* Quick disguise button to lock and go back to To-Do list */}
-          <button
-            onClick={handleSwitchToTodo}
-            title="Disguise as To-Do List"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-medium transition-all cursor-pointer shadow-2xs"
-          >
-            <CheckSquare size={14} className="text-stone-500" />
-            <span className="hidden xs:inline">To-Do Mode</span>
-          </button>
-
-          <button
-            onClick={handleLogout}
-            title="Log Out"
-            className="p-1.5 rounded-full text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-          >
-            <LogOut size={16} />
-          </button>
         </div>
-      </div>
+      </header>
 
-      {/* Mobile Bottom Navigation Bar (Fixed for responsive mobile-first experience) */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-rose-100/70 pb-safe shadow-lg">
+      {/* Mobile Bottom Navigation Bar - Rendered OUTSIDE <header> to anchor cleanly to the bottom of the viewport */}
+      <nav
+        aria-label="Mobile Bottom Navigation"
+        className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-rose-100/80 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
+      >
         <div className="flex items-center justify-around h-14 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -179,7 +186,7 @@ export const Navbar = () => {
                 }`}
               >
                 <div className="relative">
-                  <Icon size={19} />
+                  <Icon size={20} />
                   {Boolean(item.badge) && item.badge > 0 && (
                     <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full text-[9px] bg-rose-500 text-white font-bold leading-tight">
                       {item.badge}
@@ -191,7 +198,7 @@ export const Navbar = () => {
             );
           })}
         </div>
-      </div>
-    </header>
+      </nav>
+    </>
   );
 };

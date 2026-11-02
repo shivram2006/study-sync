@@ -12,6 +12,7 @@ import {
   Inbox
 } from 'lucide-react';
 import { friendService } from '../services/friendService';
+import { useSocket } from '../context/SocketContext';
 import { Navbar } from '../components/common/Navbar';
 import { romanticConfig } from '../utils/romanticConfig';
 import { formatLastSeen } from '../utils/dateUtils';
@@ -19,6 +20,7 @@ import confetti from 'canvas-confetti';
 
 export const RequestsPage = () => {
   const navigate = useNavigate();
+  const { onlineUsers } = useSocket();
   const [tab, setTab] = useState('incoming'); // incoming | outgoing | friends
   const [data, setData] = useState({ incoming: [], outgoing: [], friends: [] });
   const [loading, setLoading] = useState(true);
@@ -93,7 +95,7 @@ export const RequestsPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFBFB] text-stone-800 flex flex-col font-sans-clean antialiased pb-20 sm:pb-8">
+    <div className="min-h-screen bg-[#FFFBFB] text-stone-800 flex flex-col font-sans-clean antialiased pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] sm:pb-8">
       <Navbar />
 
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6">
@@ -244,59 +246,65 @@ export const RequestsPage = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            {data.friends.map((friend) => (
-              <div
-                key={friend._id}
-                className="p-4 rounded-2xl bg-white border border-rose-100/90 shadow-2xs flex items-center justify-between"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="relative">
-                    <img
-                      src={friend.avatar || romanticConfig.presetAvatars[0].url}
-                      alt={friend.displayName}
-                      className="w-12 h-12 rounded-full object-cover border border-rose-100"
-                    />
-                    <span
-                      className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
-                        friend.isOnline ? 'bg-emerald-500' : 'bg-stone-300'
-                      }`}
-                    />
+            {data.friends.map((friend) => {
+              const isFriendOnline = Boolean(
+                friend && friend._id && onlineUsers.has(friend._id.toString())
+              );
+              return (
+                <div
+                  key={friend._id}
+                  className="p-4 rounded-2xl bg-white border border-rose-100/90 shadow-2xs flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="relative">
+                      <img
+                        src={friend.avatar || romanticConfig.presetAvatars[0].url}
+                        alt={friend.displayName}
+                        className="w-12 h-12 rounded-full object-cover border border-rose-100"
+                      />
+                      <span
+                        className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white transition-colors duration-300 ${
+                          isFriendOnline ? 'bg-emerald-500' : 'bg-stone-300'
+                        }`}
+                        title={isFriendOnline ? 'Online' : 'Offline'}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-stone-900 text-sm truncate">
+                        {friend.displayName}
+                      </h4>
+                      <p className="text-xs text-stone-400">@{friend.username}</p>
+                      <p className="text-[11px] text-stone-400 mt-0.5">
+                        {isFriendOnline ? (
+                          <span className="text-emerald-600 font-medium">Online now</span>
+                        ) : (
+                          formatLastSeen(friend.lastSeen)
+                        )}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h4 className="font-semibold text-stone-900 text-sm truncate">
-                      {friend.displayName}
-                    </h4>
-                    <p className="text-xs text-stone-400">@{friend.username}</p>
-                    <p className="text-[11px] text-stone-400 mt-0.5">
-                      {friend.isOnline ? (
-                        <span className="text-emerald-600 font-medium">Online now</span>
-                      ) : (
-                        formatLastSeen(friend.lastSeen)
-                      )}
-                    </p>
-                  </div>
-                </div>
 
-                <div className="flex items-center gap-2">
-                  {friend.conversationId && (
+                  <div className="flex items-center gap-2">
+                    {friend.conversationId && (
+                      <button
+                        onClick={() => navigate(`/chat/${friend.conversationId}`)}
+                        className="px-3.5 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                      >
+                        <MessageCircle size={14} />
+                        <span>Chat</span>
+                      </button>
+                    )}
                     <button
-                      onClick={() => navigate(`/chat/${friend.conversationId}`)}
-                      className="px-3.5 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                      onClick={() => handleRemoveFriend(friend._id)}
+                      title="Remove Friend"
+                      className="p-2 rounded-xl text-stone-300 hover:text-rose-500 hover:bg-rose-50 transition-colors cursor-pointer"
                     >
-                      <MessageCircle size={14} />
-                      <span>Chat</span>
+                      <Trash2 size={15} />
                     </button>
-                  )}
-                  <button
-                    onClick={() => handleRemoveFriend(friend._id)}
-                    title="Remove Friend"
-                    className="p-2 rounded-xl text-stone-300 hover:text-rose-500 hover:bg-rose-50 transition-colors cursor-pointer"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
