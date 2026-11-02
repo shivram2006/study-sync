@@ -25,6 +25,7 @@ import { useSocket } from '../context/SocketContext';
 import { useCall } from '../context/CallContext';
 import { romanticConfig } from '../utils/romanticConfig';
 import { formatLastSeen, formatMessageTime } from '../utils/dateUtils';
+import { RomanticChatBackground } from '../components/chat/RomanticChatBackground';
 import confetti from 'canvas-confetti';
 
 export const ChatRoomPage = () => {
@@ -45,6 +46,17 @@ export const ChatRoomPage = () => {
   const [selectedMessageMenuId, setSelectedMessageMenuId] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
+  // Dynamic Visual Viewport tracking for iOS Safari & Standalone PWA
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window !== 'undefined' && window.visualViewport
+      ? window.visualViewport.height
+      : typeof window !== 'undefined'
+      ? window.innerHeight
+      : 800
+  );
+  const [viewportTop, setViewportTop] = useState(0);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -55,6 +67,66 @@ export const ChatRoomPage = () => {
   const scrollToBottom = (behavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   };
+
+  // Lock body scroll in chat & strictly align container with visualViewport (fixes iOS PWA keyboard displacement)
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    const originalPosition = document.body.style.position;
+    const originalHeight = document.body.style.height;
+    const originalWidth = document.body.style.width;
+
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.height = '100%';
+    document.body.style.width = '100%';
+
+    const handleViewportChange = () => {
+      if (!window.visualViewport) return;
+      const vv = window.visualViewport;
+      setViewportHeight(vv.height);
+      setViewportTop(vv.offsetTop);
+
+      // Keyboard is open if visual viewport is substantially smaller than window.innerHeight
+      const keyboardOpen = window.innerHeight - vv.height > 100;
+      setIsKeyboardOpen(keyboardOpen);
+
+      // Force window scroll to 0 to prevent iOS from displacing header off-screen
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportChange);
+      window.visualViewport.addEventListener('scroll', handleViewportChange);
+    }
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.position = originalPosition;
+      document.body.style.height = originalHeight;
+      document.body.style.width = originalWidth;
+      window.scrollTo(0, 0);
+
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportChange);
+        window.visualViewport.removeEventListener('scroll', handleViewportChange);
+      }
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange);
+    };
+  }, []);
+
+  // When keyboard opens or closes, auto-scroll to latest messages
+  useEffect(() => {
+    if (isKeyboardOpen) {
+      setTimeout(() => {
+        scrollToBottom('smooth');
+      }, 150);
+    }
+  }, [isKeyboardOpen]);
 
   // Safe mark-as-seen trigger: ONLY marks messages as read when the tab is actively visible to the user
   const triggerMarkAsSeen = () => {
@@ -390,9 +462,15 @@ export const ChatRoomPage = () => {
   );
 
   return (
-    <div className="h-screen-dvh flex flex-col bg-[#FAF7F7] text-stone-800 font-sans-clean overflow-hidden select-none">
+    <div
+      className="fixed inset-x-0 flex flex-col bg-[#FAF7F7] text-stone-800 font-sans-clean overflow-hidden select-none"
+      style={{
+        top: `${viewportTop}px`,
+        height: viewportHeight ? `${viewportHeight}px` : '100dvh'
+      }}
+    >
       {/* Sticky Romantic Header with Safe Area Inset Support */}
-      <header className="bg-white/90 backdrop-blur-md border-b border-rose-100/80 pt-safe px-3 sm:px-4 py-2 flex items-center justify-between shrink-0 shadow-xs z-30">
+      <header className="bg-white/95 backdrop-blur-md border-b border-rose-100/80 pt-safe px-3 sm:px-4 py-2 flex items-center justify-between shrink-0 shadow-xs z-30">
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             onClick={() => navigate('/private-chat')}
@@ -490,23 +568,25 @@ export const ChatRoomPage = () => {
       </header>
 
       {/* Romantic Quote Bar */}
-      <div className="bg-rose-50/70 border-b border-rose-100/60 px-4 py-1 text-center shrink-0">
+      <div className="bg-rose-50/85 backdrop-blur-xs border-b border-rose-100/60 px-4 py-1 text-center shrink-0 z-20">
         <p className="text-[11px] font-serif-romantic italic text-rose-700 truncate">
           "{partner?.customQuote || romanticConfig.headerQuote}"
         </p>
       </div>
 
-      {/* Message Stream Area */}
-      <div
-        className="flex-1 overflow-y-auto p-4 space-y-3"
-        style={{
-          backgroundImage: romanticConfig.backgrounds.chatWallpaper
-        }}
-        onClick={() => {
-          setSelectedMessageMenuId(null);
-          setShowEmojiPicker(false);
-        }}
-      >
+      {/* Main Chat Body (Holds animated romantic background + scrolling messages) */}
+      <div className="flex-1 relative min-h-0 overflow-hidden flex flex-col">
+        {/* Animated Romantic Memories Background (Fixed behind messages) */}
+        <RomanticChatBackground />
+
+        {/* Message Stream Area */}
+        <div
+          className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 relative z-10 min-h-0"
+          onClick={() => {
+            setSelectedMessageMenuId(null);
+            setShowEmojiPicker(false);
+          }}
+        >
         {/* Romantic Welcome Banner */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -737,10 +817,15 @@ export const ChatRoomPage = () => {
         })}
 
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Footer Area: Reply preview + Input Bar */}
-      <div className="bg-white/95 backdrop-blur-md border-t border-rose-100/90 pb-safe z-20">
+      <div
+        className={`bg-white/95 backdrop-blur-md border-t border-rose-100/90 shrink-0 z-30 transition-all duration-150 ${
+          isKeyboardOpen ? 'pb-1.5' : 'pb-safe'
+        }`}
+      >
         {/* Reply Bar Preview */}
         <AnimatePresence>
           {replyingTo && (
@@ -835,6 +920,31 @@ export const ChatRoomPage = () => {
               type="text"
               value={inputText}
               onChange={handleInputChange}
+              onFocus={() => {
+                setTimeout(() => {
+                  if (window.visualViewport) {
+                    setViewportHeight(window.visualViewport.height);
+                    setViewportTop(window.visualViewport.offsetTop);
+                    setIsKeyboardOpen(window.innerHeight - window.visualViewport.height > 100);
+                  }
+                  window.scrollTo(0, 0);
+                  scrollToBottom('smooth');
+                }, 120);
+                setTimeout(() => {
+                  window.scrollTo(0, 0);
+                  scrollToBottom('smooth');
+                }, 350);
+              }}
+              onBlur={() => {
+                setTimeout(() => {
+                  if (window.visualViewport) {
+                    setViewportHeight(window.visualViewport.height);
+                    setViewportTop(window.visualViewport.offsetTop);
+                    setIsKeyboardOpen(window.innerHeight - window.visualViewport.height > 100);
+                  }
+                  window.scrollTo(0, 0);
+                }, 100);
+              }}
               placeholder="Send something sweet..."
               className="flex-1 py-2 px-3.5 rounded-2xl bg-stone-100/90 focus:bg-white border border-transparent focus:border-rose-200 text-stone-800 placeholder-stone-400 text-sm focus:outline-none transition-all"
             />
