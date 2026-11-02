@@ -282,13 +282,17 @@ export const CallModal = () => {
 
                   {/* Fallback if remote stream has no active video */}
                   {!remoteStream?.getVideoTracks().some((t) => t.enabled) && (
-                    <div className="absolute inset-0 bg-stone-900/90 flex flex-col items-center justify-center">
+                    <div className="absolute inset-0 bg-stone-900/90 flex flex-col items-center justify-center overflow-hidden">
+                      <div
+                        className="absolute inset-0 bg-cover bg-center opacity-25 filter blur-xl scale-110 pointer-events-none"
+                        style={{ backgroundImage: `url('/memories/memory-couple-portrait.jpg')` }}
+                      />
                       <img
                         src={partner?.avatar || romanticConfig.presetAvatars[0].url}
                         alt="Partner"
-                        className="w-24 h-24 rounded-full border-2 border-rose-400/60 object-cover shadow-2xl"
+                        className="w-24 h-24 rounded-full border-2 border-rose-400/60 object-cover shadow-2xl relative z-10"
                       />
-                      <p className="text-xs text-stone-300 mt-3 font-serif-romantic">
+                      <p className="text-xs text-stone-300 mt-3 font-serif-romantic relative z-10">
                         Partner's camera is off
                       </p>
                     </div>
@@ -321,23 +325,32 @@ export const CallModal = () => {
                 </>
               ) : (
                 /* Audio Call UI */
-                <div className="text-center p-6 text-white max-w-sm">
-                  <div className="relative w-32 h-32 mx-auto mb-6">
-                    <span className="absolute -inset-4 rounded-full bg-rose-500/20 animate-ping" />
-                    <span className="absolute -inset-2 rounded-full bg-rose-400/30 animate-pulse" />
-                    <img
-                      src={partner?.avatar || romanticConfig.presetAvatars[0].url}
-                      alt={partner?.displayName}
-                      className="relative w-32 h-32 rounded-full object-cover border-4 border-rose-300 shadow-2xl mx-auto"
-                    />
+                <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+                  {/* Atmospheric Memory Wallpaper Background */}
+                  <div
+                    className="absolute inset-0 bg-cover bg-center opacity-30 filter blur-lg scale-110 pointer-events-none"
+                    style={{ backgroundImage: `url('/memories/memory-couple-hearts.jpg')` }}
+                  />
+                  <div className="absolute inset-0 bg-linear-to-b from-stone-950/70 via-stone-950/50 to-stone-950/85 pointer-events-none" />
+
+                  <div className="text-center p-6 text-white max-w-sm relative z-10">
+                    <div className="relative w-32 h-32 mx-auto mb-6">
+                      <span className="absolute -inset-4 rounded-full bg-rose-500/20 animate-ping" />
+                      <span className="absolute -inset-2 rounded-full bg-rose-400/30 animate-pulse" />
+                      <img
+                        src={partner?.avatar || romanticConfig.presetAvatars[0].url}
+                        alt={partner?.displayName}
+                        className="relative w-32 h-32 rounded-full object-cover border-4 border-rose-300 shadow-2xl mx-auto"
+                      />
+                    </div>
+                    <h3 className="text-xl font-serif-romantic font-bold">
+                      {partner?.displayName || 'My Love'}
+                    </h3>
+                    <p className="text-xs text-rose-300 mt-1">Audio Call in Progress</p>
+                    <p className="text-xs text-rose-100/90 mt-4 italic font-serif-romantic">
+                      "{romanticConfig.headerQuote}"
+                    </p>
                   </div>
-                  <h3 className="text-xl font-serif-romantic font-bold">
-                    {partner?.displayName || 'My Love'}
-                  </h3>
-                  <p className="text-xs text-rose-300 mt-1">Audio Call in Progress</p>
-                  <p className="text-xs text-stone-400 mt-4 italic font-serif-romantic">
-                    "Distance means so little when someone means so much."
-                  </p>
                 </div>
               )}
             </div>

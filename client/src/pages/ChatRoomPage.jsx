@@ -511,12 +511,21 @@ export const ChatRoomPage = () => {
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md mx-auto my-4 p-5 rounded-3xl bg-white/85 backdrop-blur-md border border-rose-100 text-center shadow-xs"
+          className="max-w-md mx-auto my-4 p-5 rounded-3xl bg-white/90 backdrop-blur-md border border-rose-100 text-center shadow-xs overflow-hidden"
         >
-          <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto mb-2 border border-rose-100">
-            <Heart size={22} className="fill-rose-500" />
+          {/* Framed Couple Memory Photo */}
+          <div className="relative w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-3 rounded-2xl overflow-hidden shadow-md border-2 border-rose-200/90 group cursor-pointer">
+            <img
+              src="/memories/memory-couple-portrait.jpg"
+              alt="Together"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            />
+            <div className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-xs">
+              <Heart size={12} className="fill-white" />
+            </div>
           </div>
-          <h3 className="font-serif-romantic font-bold text-base text-stone-900">
+
+          <h3 className="font-serif-romantic font-bold text-base sm:text-lg text-stone-900">
             {romanticConfig.welcomeSection.greeting}
           </h3>
           <p className="text-xs text-stone-600 mt-2 leading-relaxed whitespace-pre-line font-serif-romantic">

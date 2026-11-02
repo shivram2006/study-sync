@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { Navbar } from '../components/common/Navbar';
 import { RelationshipCounter } from '../components/romantic/RelationshipCounter';
+import { MemoriesGallery } from '../components/romantic/MemoriesGallery';
 import { romanticConfig } from '../utils/romanticConfig';
 import { formatLastSeen, formatMessageTime } from '../utils/dateUtils';
 
@@ -95,6 +96,9 @@ export const PrivateChatDashboard = () => {
           startDate={user?.relationshipStartDate || romanticConfig.relationshipStartDate}
           customQuote={user?.customQuote || romanticConfig.headerQuote}
         />
+
+        {/* Treasured Scrapbook Memories Carousel */}
+        <MemoriesGallery />
 
         {/* Header bar */}
         <div className="flex items-center justify-between gap-2.5 mb-4">

@@ -1,8 +1,7 @@
 /**
  * ROMANTIC THEME CONFIGURATION
  * ----------------------------
- * Easily customize text, anniversary counters, and images here.
- * You can replace placeholder URLs with your personal photographs.
+ * Personalized memories, anniversary counters, and romantic quotes.
  */
 
 export const romanticConfig = {
@@ -10,54 +9,92 @@ export const romanticConfig = {
   appTitle: 'Forever & Always',
   romanticSubtitle: 'Our Secret Sanctuary',
 
-  // Relationship start date for the special day counter (YYYY-MM-DD or ISO string)
-  // Default is set to 2023-06-15, change to your actual special day!
+  // Relationship start date for the special day counter
   relationshipStartDate: '2023-06-15T00:00:00Z',
 
   // Romantic header quote displayed under the top bar
-  headerQuote: 'Somewhere between hello and forever, I found my favourite person.',
+  headerQuote: 'Not forever but always beautiful 🌸',
 
-  // Romantic Welcome Message displayed in a private chat
-  welcomeSection: {
-    greeting: 'Hey, My Favourite Human! ❤️',
-    message:
-      'No matter how busy life gets, this little corner of the internet will always be ours.\n\nA place for random conversations, silly jokes, little fights, endless memories, and everything in between.\n\nI’m so glad it’s you.',
-    signature: 'Forever Yours 🕊️'
-  },
-
-  // Romantic Quick Reactions
-  reactions: ['❤️', '😂', '🥺', '😘', '🔥', '🌸', '✨'],
-
-  // Romantic Avatars (presets that users can pick during registration or in profile)
-  presetAvatars: [
+  // Curated personal memories
+  memories: [
     {
-      id: 'rose-blush',
-      name: 'Rose Blush',
-      url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+      id: 'portrait',
+      url: '/memories/memory-couple-portrait.jpg',
+      title: 'Our Warmest Smiles',
+      caption: 'Every moment with you is my favourite place to be.',
+      tag: 'Us ✨'
     },
     {
-      id: 'golden-hour',
-      name: 'Golden Hour',
-      url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80'
+      id: 'hearts',
+      url: '/memories/memory-couple-hearts.jpg',
+      title: 'Head on Shoulder',
+      caption: 'Safe, warm, and peaceful right where I belong.',
+      tag: 'Cozy 💖'
     },
     {
-      id: 'gentle-smile',
-      name: 'Gentle Smile',
-      url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
+      id: 'hands-quote',
+      url: '/memories/memory-hands-quote.jpg',
+      title: 'Not Forever But Always Beautiful',
+      caption: 'Cherishing every single heartbeat, laugh, and touch we share.',
+      tag: 'Special 🌸'
     },
     {
-      id: 'starry-eyes',
-      name: 'Starry Eyes',
-      url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&auto=format&fit=crop&q=80'
+      id: 'hands-interlocked',
+      url: '/memories/memory-hands-interlocked.jpg',
+      title: 'Holding Tight',
+      caption: 'Hand in hand through whatever journey life brings.',
+      tag: 'Promise 🤝'
     },
     {
-      id: 'warm-glow',
-      name: 'Warm Glow',
-      url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150&auto=format&fit=crop&q=80'
+      id: 'call-moment',
+      url: '/memories/memory-call-moment.jpg',
+      title: 'Midnight Calls & Sweet Kisses',
+      caption: 'Distance fades away the second your face lights up my screen.',
+      tag: 'Late Nights 🌙'
     }
   ],
 
-  // Background romantic art / illustration placeholders
+  // Romantic Welcome Message displayed in private chatroom
+  welcomeSection: {
+    greeting: 'Hey, My Favourite Human! ❤️',
+    message:
+      'No matter how busy life gets, this little corner of the internet will always be ours.\n\nA place for random conversations, silly jokes, endless memories, and everything in between.\n\nI’m so glad it’s you.',
+    signature: 'Forever Yours 🕊️',
+    featuredPhoto: '/memories/memory-couple-portrait.jpg'
+  },
+
+  // Romantic Quick Reactions
+  quickReactions: ['❤️', '😂', '🥺', '😘', '🔥', '🌸', '✨'],
+
+  // Romantic Avatars (Users can pick these personalized memories in profile)
+  presetAvatars: [
+    {
+      id: 'couple-portrait',
+      name: 'Our Smile',
+      url: '/memories/memory-couple-portrait.jpg'
+    },
+    {
+      id: 'couple-hearts',
+      name: 'Hearts & Warmth',
+      url: '/memories/memory-couple-hearts.jpg'
+    },
+    {
+      id: 'hands-quote',
+      name: 'Always Beautiful',
+      url: '/memories/memory-hands-quote.jpg'
+    },
+    {
+      id: 'call-kiss',
+      name: 'Sweet Kiss',
+      url: '/memories/memory-call-moment.jpg'
+    },
+    {
+      id: 'hands-interlocked',
+      name: 'Holding Hands',
+      url: '/memories/memory-hands-interlocked.jpg'
+    }
+  ],
+
   backgrounds: {
     chatWallpaper:
       'radial-gradient(circle at 10% 20%, rgba(255, 238, 242, 0.7) 0%, rgba(254, 242, 244, 0.4) 50%, rgba(255, 255, 255, 0.8) 100%)'
