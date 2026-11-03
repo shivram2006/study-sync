@@ -190,6 +190,7 @@ exports.sendMessage = async (req, res) => {
     const io = getIO(req);
     if (io) {
       io.to(`conv_${conversationId}`).emit('new_message', { message });
+      io.to(`user_${otherParticipantId}`).emit('new_message', { message });
       io.to(`user_${otherParticipantId}`).emit('unread_update', {
         conversationId,
         unreadCount: currentUnread + 1,

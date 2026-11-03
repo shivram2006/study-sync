@@ -104,7 +104,7 @@ const ANIMATION_VARIANTS = [
   }
 ];
 
-export const RomanticChatBackground = () => {
+export const RomanticChatBackground = React.memo(() => {
   const memories = useMemo(() => romanticConfig.memories || [], []);
   const [index, setIndex] = useState(0);
   const [vividMode, setVividMode] = useState(true); // High visibility by default
@@ -244,4 +244,4 @@ export const RomanticChatBackground = () => {
       </div>
     </div>
   );
-};
+});

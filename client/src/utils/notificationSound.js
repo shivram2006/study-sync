@@ -229,3 +229,27 @@ export const sendDisguisedNotification = async (customMessage = '') => {
     console.warn('Notification error:', err);
   }
 };
+
+
+/**
+ * Dismiss and clear all active push/system notifications for this app
+ * Ensures the phone's notification shade is immediately cleared when looking at the chat
+ */
+export const clearAllNotifications = async () => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      if (registration && registration.getNotifications) {
+        const notifications = await registration.getNotifications();
+        notifications.forEach((n) => n.close());
+      }
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
+      }
+    }
+  } catch (err) {
+    console.warn('Error clearing notifications:', err);
+  }
+};

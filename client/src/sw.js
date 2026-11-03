@@ -45,15 +45,31 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// Clear all active notifications when requested by active app clients
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'CLEAR_NOTIFICATIONS') {
+    self.registration.getNotifications().then((notifications) => {
+      notifications.forEach((n) => n.close());
+    });
+  }
+});
+
 // When user taps the notification on mobile
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+
+  // Clear all pending notifications
+  self.registration.getNotifications().then((notifications) => {
+    notifications.forEach((n) => n.close());
+  });
+
   const urlToOpen = (event.notification.data && event.notification.data.url) || '/';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
           return client.focus();
         }
       }

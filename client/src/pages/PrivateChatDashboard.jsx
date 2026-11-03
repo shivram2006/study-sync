@@ -19,20 +19,24 @@ import { RelationshipCounter } from '../components/romantic/RelationshipCounter'
 import { MemoriesGallery } from '../components/romantic/MemoriesGallery';
 import { romanticConfig } from '../utils/romanticConfig';
 import { formatLastSeen, formatMessageTime } from '../utils/dateUtils';
+import { chatCache } from '../utils/chatCache';
+import { clearAllNotifications } from '../utils/notificationSound';
 
 export const PrivateChatDashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { socket, onlineUsers } = useSocket();
 
-  const [conversations, setConversations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Instant SWR Cache Hydration (0ms load time)
+  const [conversations, setConversations] = useState(() => chatCache.getConversations() || []);
+  const [loading, setLoading] = useState(() => !chatCache.getConversations()?.length);
 
   const fetchConversations = async () => {
     try {
       const res = await chatService.getConversations();
       if (res.success) {
         setConversations(res.conversations);
+        chatCache.setConversations(res.conversations);
       }
     } catch (err) {
       console.error('Error loading conversations:', err);
@@ -42,6 +46,7 @@ export const PrivateChatDashboard = () => {
   };
 
   useEffect(() => {
+    clearAllNotifications();
     fetchConversations();
   }, []);
 

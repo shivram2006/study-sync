@@ -20,7 +20,8 @@ import {
   Video,
   Mic,
   StopCircle,
-  MoreVertical
+  MoreVertical,
+  Clock
 } from 'lucide-react';
 import { chatService } from '../services/chatService';
 import { useAuth } from '../context/AuthContext';
@@ -33,6 +34,8 @@ import { VoiceNotePlayer } from '../components/chat/VoiceNotePlayer';
 import { VideoNotePlayer } from '../components/chat/VideoNotePlayer';
 import { VideoNoteRecorderModal } from '../components/chat/VideoNoteRecorderModal';
 import { MessageActionModal } from '../components/chat/MessageActionModal';
+import { chatCache } from '../utils/chatCache';
+import { clearAllNotifications } from '../utils/notificationSound';
 import confetti from 'canvas-confetti';
 
 export const ChatRoomPage = () => {
@@ -42,10 +45,12 @@ export const ChatRoomPage = () => {
   const { socket, onlineUsers } = useSocket();
   const { startCall } = useCall();
 
-  const [conversation, setConversation] = useState(null);
-  const [messages, setMessages] = useState([]);
+  // Instant 0ms SWR Cache Hydration (zero blank screen / zero pop-in)
+  const cachedChat = chatCache.getChat(conversationId);
+  const [conversation, setConversation] = useState(() => cachedChat?.conversation || null);
+  const [messages, setMessages] = useState(() => cachedChat?.messages || []);
   const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !cachedChat?.messages?.length);
   const [uploading, setUploading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
@@ -162,10 +167,56 @@ export const ChatRoomPage = () => {
     }
   };
 
+  // Silent background sync without disrupting the UI
+  const syncLatestMessages = async () => {
+    try {
+      const [convRes, msgRes] = await Promise.all([
+        chatService.getConversationById(conversationId),
+        chatService.getMessages(conversationId)
+      ]);
+
+      if (convRes.success && convRes.conversation) {
+        setConversation(convRes.conversation);
+      }
+
+      if (msgRes.success && msgRes.messages) {
+        setMessages((prev) => {
+          if (prev.length === 0) return msgRes.messages;
+          const prevMap = new Map(prev.map((m) => [m._id, m]));
+          let hasChanges = false;
+
+          msgRes.messages.forEach((freshMsg) => {
+            const existing = prevMap.get(freshMsg._id);
+            if (!existing) {
+              prevMap.set(freshMsg._id, freshMsg);
+              hasChanges = true;
+            } else if (
+              existing.isEdited !== freshMsg.isEdited ||
+              existing.isDeleted !== freshMsg.isDeleted ||
+              (existing.readBy?.length || 0) !== (freshMsg.readBy?.length || 0) ||
+              (existing.reactions?.length || 0) !== (freshMsg.reactions?.length || 0)
+            ) {
+              prevMap.set(freshMsg._id, freshMsg);
+              hasChanges = true;
+            }
+          });
+
+          if (!hasChanges) return prev;
+          return Array.from(prevMap.values()).sort(
+            (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+          );
+        });
+
+        chatCache.setChat(conversationId, msgRes.messages, convRes.conversation || conversation);
+      }
+    } catch (err) {
+      console.warn('Silent sync error:', err);
+    }
+  };
+
   // Load conversation details & messages
   const loadChatData = async () => {
     try {
-      setLoading(true);
       const [convRes, msgRes] = await Promise.all([
         chatService.getConversationById(conversationId),
         chatService.getMessages(conversationId)
@@ -176,17 +227,32 @@ export const ChatRoomPage = () => {
       }
       if (msgRes.success) {
         setMessages(msgRes.messages);
+        chatCache.setChat(conversationId, msgRes.messages, convRes.conversation);
       }
     } catch (err) {
       console.error('Error loading chat room:', err);
     } finally {
       setLoading(false);
-      setTimeout(() => scrollToBottom('auto'), 150);
+      setTimeout(() => scrollToBottom('auto'), 100);
     }
   };
 
   useEffect(() => {
+    clearAllNotifications();
     loadChatData();
+  }, [conversationId]);
+
+  // Periodic 4.5-second lightweight background sync while chat tab is active
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncLatestMessages();
+      }
+    }, 4500);
+
+    return () => clearInterval(interval);
   }, [conversationId]);
 
   // Mark messages as read ONLY when user is actively viewing the chat window
@@ -195,11 +261,17 @@ export const ChatRoomPage = () => {
 
     if (document.visibilityState === 'visible') {
       triggerMarkAsSeen();
+      clearAllNotifications();
     }
 
     const onVisibilityOrFocusChange = () => {
       if (document.visibilityState === 'visible') {
         triggerMarkAsSeen();
+        clearAllNotifications();
+        if (socket && socket.connected) {
+          socket.emit('join_conversation', { conversationId });
+        }
+        syncLatestMessages();
       }
     };
 
@@ -228,13 +300,35 @@ export const ChatRoomPage = () => {
 
     socket.emit('join_conversation', { conversationId });
 
+    // When socket reconnects (e.g. mobile wakes up from sleep), automatically re-join & sync!
+    const handleSocketConnect = () => {
+      socket.emit('join_conversation', { conversationId });
+      syncLatestMessages();
+    };
+
     const handleNewMessage = ({ message }) => {
       if (message.conversationId.toString() === conversationId.toString()) {
         setMessages((prev) => {
           if (prev.some((m) => m._id === message._id)) return prev;
+
+          // If this replaces an optimistic message sent by me
+          const tempIdx = prev.findIndex(
+            (m) =>
+              typeof m._id === 'string' &&
+              m._id.startsWith('temp_') &&
+              m.content === message.content &&
+              (m.senderId?._id || m.senderId)?.toString() === user?._id?.toString()
+          );
+          if (tempIdx !== -1) {
+            const next = [...prev];
+            next[tempIdx] = message;
+            return next;
+          }
+
           return [...prev, message];
         });
         scrollToBottom();
+        clearAllNotifications();
 
         const senderId = (message.senderId?._id || message.senderId)?.toString();
         const currentUserId = user?._id?.toString();
@@ -242,6 +336,18 @@ export const ChatRoomPage = () => {
         if (senderId && senderId !== currentUserId && document.visibilityState === 'visible') {
           triggerMarkAsSeen();
         }
+      }
+    };
+
+    const handleUnreadUpdate = ({ conversationId: convId, message }) => {
+      if (message && convId.toString() === conversationId.toString()) {
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === message._id)) return prev;
+          return [...prev, message];
+        });
+        scrollToBottom();
+        clearAllNotifications();
+        triggerMarkAsSeen();
       }
     };
 
@@ -332,7 +438,9 @@ export const ChatRoomPage = () => {
       });
     };
 
+    socket.on('connect', handleSocketConnect);
     socket.on('new_message', handleNewMessage);
+    socket.on('unread_update', handleUnreadUpdate);
     socket.on('message_reaction_updated', handleReaction);
     socket.on('message_edited', handleEdited);
     socket.on('message_deleted', handleDelete);
@@ -345,7 +453,9 @@ export const ChatRoomPage = () => {
 
     return () => {
       socket.emit('leave_conversation', { conversationId });
+      socket.off('connect', handleSocketConnect);
       socket.off('new_message', handleNewMessage);
+      socket.off('unread_update', handleUnreadUpdate);
       socket.off('message_reaction_updated', handleReaction);
       socket.off('message_edited', handleEdited);
       socket.off('message_deleted', handleDelete);
@@ -376,7 +486,7 @@ export const ChatRoomPage = () => {
     }, 1800);
   };
 
-  // Send text message
+  // Send text message (0ms Instant Optimistic UI)
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     const content = inputText.trim();
@@ -391,31 +501,52 @@ export const ChatRoomPage = () => {
       socket.emit('typing_stop', { conversationId });
     }
 
+    // Instantly append optimistic message for 0ms lag
+    const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const optimisticMessage = {
+      _id: tempId,
+      conversationId,
+      senderId: user,
+      content,
+      messageType: 'text',
+      createdAt: new Date().toISOString(),
+      deliveredTo: [],
+      readBy: [],
+      status: 'sending',
+      replyTo: replyingTo
+        ? {
+            messageId: replyingTo._id,
+            content: replyingTo.content,
+            senderName: replyingTo.senderId?.displayName || 'User',
+            messageType: replyingTo.messageType
+          }
+        : undefined
+    };
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+    scrollToBottom('smooth');
+
     try {
       const payload = {
         conversationId,
         content,
         messageType: 'text',
-        replyTo: replyingTo
-          ? {
-              messageId: replyingTo._id,
-              content: replyingTo.content,
-              senderName: replyingTo.senderId?.displayName || 'User',
-              messageType: replyingTo.messageType
-            }
-          : undefined
+        replyTo: optimisticMessage.replyTo
       };
 
       const res = await chatService.sendMessage(payload);
       if (res.success && res.message) {
         setMessages((prev) => {
-          if (prev.some((m) => m._id === res.message._id)) return prev;
-          return [...prev, res.message];
+          const updated = prev.map((m) => (m._id === tempId ? res.message : m));
+          chatCache.setChat(conversationId, updated, conversation);
+          return updated;
         });
-        scrollToBottom();
       }
     } catch (err) {
       console.error('Error sending message:', err);
+      setMessages((prev) =>
+        prev.map((m) => (m._id === tempId ? { ...m, status: 'failed' } : m))
+      );
     }
   };
 
@@ -987,7 +1118,11 @@ export const ChatRoomPage = () => {
                       {/* Delivery & Read Receipts Status for sender's messages */}
                       {isMe && !isDeleted && (
                         <span className="flex items-center ml-0.5">
-                          {isRead ? (
+                          {msg.status === 'sending' ? (
+                            <Clock size={12} className="text-rose-200 animate-pulse" title="Sending..." />
+                          ) : msg.status === 'failed' ? (
+                            <span className="text-[9px] text-red-200 font-medium">Failed</span>
+                          ) : isRead ? (
                             <CheckCheck size={14} className="text-sky-300 stroke-[2.5]" title="Seen" />
                           ) : isDelivered ? (
                             <CheckCheck size={14} className="text-rose-200 stroke-[2]" title="Delivered" />
